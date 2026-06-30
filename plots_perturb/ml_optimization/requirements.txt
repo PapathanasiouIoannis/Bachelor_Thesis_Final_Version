@@ -1,0 +1,17 @@
+numpy
+pandas
+scipy
+scikit-learn
+matplotlib
+pyarrow
+joblib
+tqdm
+shap
+sympy
+plotly
+optuna
+xgboost
+seaborn
+torch
+streamlit
+umap-learn
