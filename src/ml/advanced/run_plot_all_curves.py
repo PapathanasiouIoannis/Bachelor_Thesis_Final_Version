@@ -32,7 +32,6 @@ def plot_all_curves():
     df_quark = pd.concat([pd.read_parquet(f, engine='pyarrow') for f in quark_files], ignore_index=True)
 
     # 2. Limit number of curves to prevent RAM/Viewer crash
-    # PDF viewers will crash if you give them 100,000 vector lines. 
     # We will plot up to 3000 randomly selected curves from each class, rendering to a high-res PNG.
     MAX_CURVES = 3000
     
@@ -53,7 +52,7 @@ def plot_all_curves():
     # 3. Plotting
     output_dir = os.path.join("plots", "ml_advanced")
     os.makedirs(output_dir, exist_ok=True)
-    # Using PNG because PDFs with thousands of lines become 500MB and crash computers
+    # Using PNG because PDFs with thousands of lines become 500MB and crash computers - Figured that out the hard way ..
     plot_path = os.path.join(output_dir, "all_curves_raw.png") 
     
     logger.info("Drawing lines... this might take a moment.")
