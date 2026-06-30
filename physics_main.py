@@ -1,8 +1,7 @@
 # physics_main.py
 
 """
-  Isolated test-bed orchestrator for the Physics Generation and Visualization
-  pipeline. This script is used to strictly validate the Equation of State (EoS)
+  Physics Generation and Visualization pipeline. This script is used to strictly validate the Equation of State (EoS)
   generation, Tolman-Oppenheimer-Volkoff (TOV) solver stability, and
   thermodynamic constraints.
 
