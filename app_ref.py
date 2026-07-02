@@ -97,7 +97,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="title-gradient">Astrophysical Multi-Messenger Inference Engine</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">A rigorous Monte Carlo engine for predicting Equation of State topologies using deep learning.</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle">A Monte Carlo engine for predicting Equation of State topologies using machine learning.</div>', unsafe_allow_html=True)
 
 # -----------------------------------------
 # 2. PyTorch Model Definition
@@ -205,7 +205,7 @@ with st.sidebar:
     else:
         L_obs, L_err = None, None
         
-    st.markdown("### 🧠 AI Core")
+    st.markdown("### ML Model")
     model_choice = st.selectbox("Inference Model", ["Optimized XGBoost", "Optimized MLP"], label_visibility="collapsed")
     
     st.markdown("---")
@@ -420,7 +420,7 @@ if run_btn:
         # -----------------------------------------
         # 7. AI Explainability (SHAP Waterfall)
         # -----------------------------------------
-        with st.expander("🧠 AI Decision Explainability (SHAP)"):
+        with st.expander("Decision Explainability (SHAP)"):
             st.markdown("This module uses the core **XGBoost AI** to mathematically break down exactly how your Mean Observation influenced the final Probability prediction. *(Note: SHAP values are calculated in log-odds margin space. A final positive `f(x)` strongly predicts a Quark Star).*")
             
             # Construct the precise Mean Observation
