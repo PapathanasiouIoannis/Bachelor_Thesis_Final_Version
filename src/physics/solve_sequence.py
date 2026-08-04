@@ -30,6 +30,48 @@ _A_CONV = CONFIG["A_CONV"]
 _BUCHDAHL_LIMIT = CONFIG["BUCHDAHL_LIMIT"]
 
 
+def _apply_surface_density_correction(yR: float, R: float, M: float, eps_surf: float) -> float:
+    """Apply the self-bound surface-density jump correction to y(R)."""
+    if eps_surf <= 0.0:
+        return yR
+    delta_yR = _G_CONV * (R**3) * eps_surf / M
+    return yR - delta_yR
+
+
+def _tidal_lambda_from_y(C: float, yR: float) -> float | None:
+    num = (
+        (8.0 / 5.0)
+        * (1.0 - 2.0 * C) ** 2
+        * C**5
+        * (2.0 * C * (yR - 1.0) - yR + 2.0)
+    )
+
+    den_term1 = 2.0 * C * (6.0 - 3.0 * yR + 3.0 * C * (5.0 * yR - 8.0))
+    den_term2 = (
+        4.0
+        * (C**3)
+        * (
+            13.0
+            - 11.0 * yR
+            + C * (3.0 * yR - 2.0)
+            + 2.0 * (C**2) * (1.0 + yR)
+        )
+    )
+    den_term3 = (
+        3.0
+        * (1.0 - 2.0 * C) ** 2
+        * (2.0 - yR + 2.0 * C * (yR - 1.0))
+        * np.log(1.0 - 2.0 * C)
+    )
+
+    den = den_term1 + den_term2 + den_term3
+    if abs(den) < 1e-25:
+        return None
+
+    k2 = num / den
+    return (2.0 / 3.0) * k2 * (C**-5)
+
+
 # event to detect surface
 def _surface_event(t, y, *args):
     return y[1] - CONFIG["SURFACE_PRESSURE_EVENT_CUTOFF"]
@@ -144,41 +186,14 @@ def solve_sequence(eos_callable: Callable, is_quark: bool = False, p_max_causal:
                 if C >= _BUCHDAHL_LIMIT:
                     continue
 
+                # Surface density jump correction for self-bound stars
+                # (Postnikov et al. 2010, Eq. 6): Delta_yR = G_CONV * R^3 * eps_surf / M
+                yR = _apply_surface_density_correction(yR, R, M, eps_surf)
+
                 # complex Tidal Love Number (k2) formula (Hinderer et al. 2008)
-                num = (
-                    (8.0 / 5.0)
-                    * (1.0 - 2.0 * C) ** 2
-                    * C**5
-                    * (2.0 * C * (yR - 1.0) - yR + 2.0)
-                )
-
-                den_term1 = 2.0 * C * (6.0 - 3.0 * yR + 3.0 * C * (5.0 * yR - 8.0))
-                den_term2 = (
-                    4.0
-                    * (C**3)
-                    * (
-                        13.0
-                        - 11.0 * yR
-                        + C * (3.0 * yR - 2.0)
-                        + 2.0 * (C**2) * (1.0 + yR)
-                    )
-                )
-                den_term3 = (
-                    3.0
-                    * (1.0 - 2.0 * C) ** 2
-                    * (2.0 - yR + 2.0 * C * (yR - 1.0))
-                    * np.log(1.0 - 2.0 * C)
-                )
-
-                den = den_term1 + den_term2 + den_term3
-
-                if abs(den) < 1e-25:
+                Lam = _tidal_lambda_from_y(C, yR)
+                if Lam is None:
                     continue
-
-                k2 = num / den
-
-                # dimensionless Tidal Deformability
-                Lam = (2.0 / 3.0) * k2 * (C**-5)
 
                 if M <= 0.0:
                     break

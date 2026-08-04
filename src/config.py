@@ -53,6 +53,8 @@ CONFIG = {
     "P_GRID_POINTS": 10000,
     "DYNAMIC_SEARCH_MAX": 10.0,
     "DYNAMIC_SEARCH_POINTS": 100,
+    "CRUST_CORE_EPS_ABS_TOL": 1e-6,
+    "CRUST_CORE_EPS_REL_TOL": 1e-5,
     "ATTEMPT_MULTIPLIER": 5000,
     "MIN_MASS_CUTOFF": 0.05,
     "MIN_RADIUS_CUTOFF": 3.0,
@@ -70,6 +72,7 @@ CONFIG = {
     "GRID_CRUST_POINTS": 300,
     "GRID_CORE_POINTS": 1200,
     "SMALL_STEP_M": 1e-5,
+    # Legacy defaults — workers pass TOV_RTOL/TOV_ATOL instead
     "ODE_RTOL": 1e-10,
     "ODE_ATOL": 1e-12,
     "TOV_RTOL": 1e-8,
@@ -85,34 +88,38 @@ CONFIG = {
     # 3. ML SETTINGS
     # ==========================================
     "ML_XGB_N_ESTIMATORS_RANGE": (50, 1000),
-    "ML_XGB_MAX_DEPTH_RANGE": (3, 12),
-    "ML_XGB_LR_RANGE": (1e-4, 0.5),
+    "ML_XGB_MAX_DEPTH_RANGE": (3, 10),  # Synced with optimize_xgboost.py
+    "ML_XGB_LR_RANGE": (1e-3, 0.3),    # Synced with optimize_xgboost.py
     "ML_XGB_SUBSAMPLE_RANGE": (0.5, 1.0),
-    "ML_XGB_COLSAMPLE_RANGE": (0.6, 1.0),
-    
-    "ML_LGB_N_ESTIMATORS_RANGE": (50, 1000),
-    "ML_LGB_MAX_DEPTH_RANGE": (3, 12),
-    "ML_LGB_LR_RANGE": (1e-4, 0.5),
-    "ML_LGB_SUBSAMPLE_RANGE": (0.5, 1.0),
+    # [DEPRECATED] ML_XGB_COLSAMPLE_RANGE — not used by optimize_xgboost.py
+    # "ML_XGB_COLSAMPLE_RANGE": (0.6, 1.0),
 
-    "ML_BNN_N_LAYERS_RANGE": (1, 5),
-    "ML_BNN_N_UNITS_RANGE": (16, 256),
-    "ML_BNN_KL_WEIGHT_RANGE": (1e-6, 1.0),
-    "ML_BNN_LR_INIT_RANGE": (1e-5, 1e-1),
-    "ML_BNN_DEFAULT_HIDDEN_LAYERS": (64, 32),
-    "ML_BNN_DEFAULT_LR_INIT": 1e-3,
-    "ML_BNN_DEFAULT_MAX_ITER": 300,
-    "ML_BNN_DEFAULT_KL_WEIGHT": 1.0,
-    "ML_BNN_MC_SAMPLES_TRAIN": 1,
-    "ML_BNN_MC_SAMPLES_TEST": 30,
-    "ML_BNN_BATCH_SIZE": 8192,
-    "ML_BNN_PATIENCE": 5,
-    "ML_BNN_WEIGHT_PRIOR_RANGE": (-0.2, 0.2),
-    "ML_BNN_RHO_PRIOR_RANGE": (-5.0, -4.0),
-    
+    # [DEPRECATED] LightGBM — no LightGBM model exists in the codebase
+    # "ML_LGB_N_ESTIMATORS_RANGE": (50, 1000),
+    # "ML_LGB_MAX_DEPTH_RANGE": (3, 12),
+    # "ML_LGB_LR_RANGE": (1e-4, 0.5),
+    # "ML_LGB_SUBSAMPLE_RANGE": (0.5, 1.0),
+
+    # [DEPRECATED] BNN — no Bayesian Neural Network model exists in the codebase
+    # "ML_BNN_N_LAYERS_RANGE": (1, 5),
+    # "ML_BNN_N_UNITS_RANGE": (16, 256),
+    # "ML_BNN_KL_WEIGHT_RANGE": (1e-6, 1.0),
+    # "ML_BNN_LR_INIT_RANGE": (1e-5, 1e-1),
+    # "ML_BNN_DEFAULT_HIDDEN_LAYERS": (64, 32),
+    # "ML_BNN_DEFAULT_LR_INIT": 1e-3,
+    # "ML_BNN_DEFAULT_MAX_ITER": 300,
+    # "ML_BNN_DEFAULT_KL_WEIGHT": 1.0,
+    # "ML_BNN_MC_SAMPLES_TRAIN": 1,
+    # "ML_BNN_MC_SAMPLES_TEST": 30,
+    # "ML_BNN_BATCH_SIZE": 8192,
+    # "ML_BNN_PATIENCE": 5,
+    # "ML_BNN_WEIGHT_PRIOR_RANGE": (-0.2, 0.2),
+    # "ML_BNN_RHO_PRIOR_RANGE": (-5.0, -4.0),
+
     "ML_ISO_FOREST_CONTAMINATION": 0.01,
     "ML_CV_SPLITS": 5,
     "ML_RANDOM_SEED": 42,
+    # NOTE: Actual trials are 50 (XGBoost) and 30 (MLP) — hardcoded in optimize scripts
     "ML_HPO_TRIALS": 150,
     "ML_CONFORMAL_ALPHA": 0.05,
     "ML_HPO_SUBSAMPLE_SIZE": 25000,
@@ -132,6 +139,7 @@ CONFIG = {
         "Bag_B", "Gap_Delta", "Mass_Strange", "Generation_Seed",
         "Perturb_A", "Perturb_eps0", "Perturb_sigma", "Baseline_Name"
     ],
+    # Feature Sets B-D: Defined for future experiments. Only Set A is currently operational.
     "ML_FEATURES": {
         "Geo": ["Mass", "Radius"],
         "A": ["Mass", "Radius", "LogLambda"],
@@ -139,7 +147,7 @@ CONFIG = {
         "C": ["Mass", "Radius", "LogLambda", "Eps_Central", "CS2_Central"],
         "D": ["Mass", "Radius", "LogLambda", "Eps_Central", "CS2_Central", "Slope14"],
     },
-    
+
     # ==========================================
     # 5. PATHS
     # ==========================================

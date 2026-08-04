@@ -1,3 +1,4 @@
+import ast
 import os
 import json
 import numpy as np
@@ -11,12 +12,16 @@ import plotly.express as px
 import plotly.graph_objects as go
 import shap
 import matplotlib.pyplot as plt
+from src.ml.mlp_model import load_mlp_model
+from src.runtime import runtime_paths
+
+PATHS = runtime_paths()
 
 # -----------------------------------------
 # 1. Page Configuration & Custom CSS
 # -----------------------------------------
 st.set_page_config(
-    page_title="Perturbed Astrophysical Inference Engine", 
+    page_title="Perturbed Astrophysical Inference Engine",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -97,12 +102,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="title-gradient">Perturbed Multi-Messenger Inference Engine</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">A Monte Carlo engine evaluating highly perturbed Equations of State</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle">A robust Monte Carlo engine evaluating highly perturbed Equations of State, entirely without Compactness (C).</div>', unsafe_allow_html=True)
 
 # -----------------------------------------
 # 2. PyTorch Model Definition
 # -----------------------------------------
-class DynamicMLP(nn.Module):
+if False:
     def __init__(self, input_dim, hidden_sizes, dropout_rate):
         super(DynamicMLP, self).__init__()
         layers = []
@@ -115,7 +120,7 @@ class DynamicMLP(nn.Module):
         layers.append(nn.Linear(in_dim, 1))
         # Note: BCEWithLogitsLoss was used, so we need Sigmoid for inference probabilities
         self.net = nn.Sequential(*layers)
-        
+
     def forward(self, x):
         return self.net(x)
 
@@ -124,59 +129,53 @@ class DynamicMLP(nn.Module):
 # -----------------------------------------
 @st.cache_resource(show_spinner="Loading Perturbed Scaler...")
 def load_scaler():
-    return joblib.load(os.path.join("data", "ml_tensors_perturb", "scaler_perturb.joblib"))
+    return joblib.load(PATHS.perturb_tensor_dir / "scaler_perturb.joblib")
 
 @st.cache_resource(show_spinner="Loading XGBoost Core...")
 def load_xgboost(feature_set):
-    model_path = os.path.join("outputs_perturb", f"xgboost_{feature_set}", "xgboost_weights.json")
+    model_path = PATHS.outputs_perturb_root / f"xgboost_{feature_set}" / "xgboost_weights.json"
     model = xgb.XGBClassifier()
     model.load_model(model_path)
     return model
 
 @st.cache_resource(show_spinner="Loading Deep PyTorch Core...")
 def load_mlp(feature_set):
-    params_path = os.path.join("outputs_perturb", f"mlp_{feature_set}_best_params.json")
-    model_path = os.path.join("outputs_perturb", f"mlp_{feature_set}", "mlp_weights.pth")
-    with open(params_path, "r") as f:
-        best_params = json.load(f)
-    hidden_sizes = eval(best_params['hidden_layer_sizes'])
-    dropout_rate = best_params['dropout_rate']
-    
     input_dim = 2 if feature_set == "MR" else 3
-    
     device = torch.device("cpu")
-    model = DynamicMLP(input_dim=input_dim, hidden_sizes=hidden_sizes, dropout_rate=dropout_rate).to(device)
-    model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
-    model.eval()
-    return model
+    return load_mlp_model(
+        PATHS.outputs_perturb_root / f"mlp_{feature_set}_best_params.json",
+        PATHS.outputs_perturb_root / f"mlp_{feature_set}" / "mlp_weights.pth",
+        input_dim,
+        device,
+    )
 
 @st.cache_data(show_spinner="Loading Noisy EoS Manifold...")
 def load_background_manifold(_scaler):
     # Load ALL available data to show the true, dense physical background manifold
     df_list = []
     for split in ["train.parquet", "val.parquet", "test.parquet"]:
-        path = os.path.join("data", "ml_tensors_perturb", split)
+        path = PATHS.perturb_tensor_dir / split
         if os.path.exists(path):
             df_list.append(pd.read_parquet(path, engine='pyarrow'))
-            
+
     if not df_list:
         return pd.DataFrame()
-        
+
     full_df = pd.concat(df_list, ignore_index=True)
-    
+
     # Feature order for perturbed data: ['Mass', 'Radius', 'log10_Lambda']
     features = ['Mass', 'Radius', 'log10_Lambda']
     X_scaled = full_df[features].values
     X_raw = _scaler.inverse_transform(X_scaled)
     df_raw = pd.DataFrame(X_raw, columns=features)
     df_raw['Phase_Class'] = np.where(full_df['Label'] == 1, "Noisy Quark EoS", "Noisy Hadronic EoS")
-    
+
     return df_raw
 
-if not os.path.exists(os.path.join("data", "ml_tensors_perturb", "scaler_perturb.joblib")):
+if not os.path.exists(PATHS.perturb_tensor_dir / "scaler_perturb.joblib"):
     st.error("🚨 **Fatal Error:** Could not find `scaler_perturb.joblib`. Please ensure the Perturbed ML pipeline has been run.")
     st.stop()
-    
+
 scaler = load_scaler()
 bg_manifold = load_background_manifold(scaler)
 
@@ -191,26 +190,26 @@ with st.sidebar:
         help="NICER mode uses {MR} models. Multi-Messenger uses {MRL} models. LIGO mode was removed as it requires independent R estimation.",
         label_visibility="collapsed"
     )
-    
+
     # Map observatory mode to feature set
     feature_set = "MR" if obs_mode == "NICER X-ray (Mass & Radius)" else "MRL"
-    
+
     st.markdown("### 📡 Telemetry Input")
     M_obs = st.number_input("Mean Mass (M_sun)", min_value=0.01, max_value=10.0, value=1.40, step=0.01)
     M_err = st.number_input("Mass ±1σ Error", min_value=0.001, max_value=1.0, value=0.05, step=0.01)
-    
+
     R_obs = st.number_input("Mean Radius (km)", min_value=1.0, max_value=100.0, value=11.50, step=0.1)
     R_err = st.number_input("Radius ±1σ Error", min_value=0.01, max_value=3.0, value=0.5, step=0.05)
-        
+
     if feature_set == "MRL":
         L_obs = st.number_input("Mean log10(Λ)", min_value=0.0, max_value=5.0, value=2.50, step=0.1)
         L_err = st.number_input("log10(Λ) ±1σ Error", min_value=0.01, max_value=2.0, value=0.2, step=0.05)
     else:
         L_obs, L_err = None, None
-        
-    st.markdown("### ML Model")
+
+    st.markdown("### 🧠 AI Core")
     model_choice = st.selectbox("Inference Model", ["Optimized XGBoost", "Optimized MLP"], label_visibility="collapsed")
-    
+
     st.markdown("---")
     run_btn = st.button("🚀 Execute Monte Carlo", use_container_width=True)
 
@@ -227,10 +226,10 @@ if run_btn:
 
     with st.spinner(f"Running highly-parallelized Monte Carlo Inference using {model_choice} [{feature_set}]..."):
         N = 5000
-        
+
         mass_samples = np.random.normal(M_obs, M_err, N)
         radius_samples = np.random.normal(R_obs, R_err, N)
-        
+
         if feature_set == "MRL":
             lambda_samples = np.random.normal(L_obs, L_err, N)
             X_mc = pd.DataFrame({
@@ -250,7 +249,7 @@ if run_btn:
             dummy = pd.DataFrame({'Mass': mass_samples, 'Radius': radius_samples, 'log10_Lambda': np.zeros(N)})
             scaled_dummy = scaler.transform(dummy)
             X_mc_scaled = pd.DataFrame(scaled_dummy[:, :2], columns=['Mass', 'Radius'])
-            
+
         if model_choice == "Optimized XGBoost":
             xgb_model = load_xgboost(feature_set)
             probs = xgb_model.predict_proba(X_mc_scaled)[:, 1]
@@ -259,14 +258,14 @@ if run_btn:
             with torch.no_grad():
                 outputs = mlp_model(torch.FloatTensor(X_mc_scaled.values.copy()))
                 probs = torch.sigmoid(outputs).cpu().numpy().flatten()
-                
+
         X_mc['Quark_Probability'] = probs
         X_mc['Phase_Class'] = np.where(probs >= 0.5, "MC Observation (Quark Phase)", "MC Observation (Hadronic Phase)")
-        
+
         expected_prob = np.mean(probs)
         lower_bound = np.percentile(probs, 2.5)
         upper_bound = np.percentile(probs, 97.5)
-        
+
         # Calculate Reliability based on CI Spread
         ci_spread = upper_bound - lower_bound
         if ci_spread <= 0.10:
@@ -275,19 +274,19 @@ if run_btn:
             rel_status = "Moderate"
         else:
             rel_status = "Low (Boundary Straddle)"
-            
+
         st.markdown("### 📊 Inference Telemetry")
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Expected Quark Probability", f"{expected_prob:.2%}")
         m2.metric("Lower Bound (95% CI)", f"{lower_bound:.2%}")
         m3.metric("Upper Bound (95% CI)", f"{upper_bound:.2%}")
         m4.metric("Inference Reliability", rel_status, f"{ci_spread:.1%} variance", delta_color="inverse")
-        
+
         # -----------------------------------------
         # 6. Plotly Interactive Visualization
         # -----------------------------------------
         st.markdown("<br>### 🌌 Topological Phase Manifold", unsafe_allow_html=True)
-        
+
         fig = go.Figure()
 
         # 1. Plot the distinct background EoS universe (2D Base)
@@ -323,15 +322,17 @@ if run_btn:
 
         if feature_set == "MRL":
             fig = go.Figure()
-            
-            # 3D Background
+
+            # 3D Background (Sub-sampled to prevent WebGL crash on 400k+ points)
+            bg_sample_3d = bg_manifold.sample(n=10000, random_state=42) if len(bg_manifold) > 10000 else bg_manifold
+
             fig.add_trace(go.Scatter3d(
-                x=bg_manifold['Radius'],
-                y=bg_manifold['log10_Lambda'],
-                z=bg_manifold['Mass'],
+                x=bg_sample_3d['Radius'],
+                y=bg_sample_3d['log10_Lambda'],
+                z=bg_sample_3d['Mass'],
                 mode='markers',
                 marker=dict(
-                    color=np.where(bg_manifold['Phase_Class'] == "Noisy Quark EoS", '#ff4b4b', '#1f77b4'),
+                    color=np.where(bg_sample_3d['Phase_Class'] == "Noisy Quark EoS", '#ff4b4b', '#1f77b4'),
                     size=3,
                     opacity=0.25
                 ),
@@ -356,7 +357,7 @@ if run_btn:
                 name="3D Observation Ellipsoid",
                 hovertemplate="<b>R:</b> %{x:.2f}<br><b>Λ:</b> %{y:.2f}<br><b>M:</b> %{z:.2f}<extra></extra>"
             ))
-            
+
             # 3D 1-sigma bounding surface (perimeter curve)
             u = np.linspace(0, 2 * np.pi, 40)
             v = np.linspace(0, np.pi, 40)
@@ -372,7 +373,7 @@ if run_btn:
                 name='1σ Observation Perimeter',
                 hoverinfo='skip'
             ))
-            
+
             fig.update_layout(
                 scene=dict(
                     xaxis_title='Radius (km)',
@@ -389,14 +390,14 @@ if run_btn:
             t = np.linspace(0, 2 * np.pi, 100)
             x_ell = R_obs + R_err * np.cos(t)
             y_ell = M_obs + M_err * np.sin(t)
-                
+
             fig.add_trace(go.Scatter(
                 x=x_ell, y=y_ell, mode='lines',
                 line=dict(color='#ff8f00', width=3, dash='solid'),
                 name='1σ Observation Perimeter',
                 hoverinfo='skip'
             ))
-            
+
             # 2D Plot layout
             fig.update_layout(
                 xaxis=dict(title='Radius (km)', showgrid=True, gridcolor='#334155', zeroline=False),
@@ -411,15 +412,15 @@ if run_btn:
             margin=dict(l=20, r=20, t=30, b=20),
             legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
         )
-        
+
         st.plotly_chart(fig, use_container_width=True)
-        
+
         # -----------------------------------------
         # 7. AI Explainability (SHAP Waterfall)
         # -----------------------------------------
-        with st.expander("Decision Explainability (SHAP)"):
+        with st.expander("🧠 AI Decision Explainability (SHAP)"):
             st.markdown("This module uses the core **XGBoost AI** to mathematically break down exactly how your Mean Observation influenced the final Probability prediction. *(Note: SHAP values are calculated in log-odds margin space. A final positive `f(x)` strongly predicts a Quark Star).*")
-            
+
             if feature_set == "MRL":
                 mean_obs_df = pd.DataFrame({
                     'Mass': [M_obs],
@@ -435,28 +436,28 @@ if run_btn:
                 dummy = pd.DataFrame({'Mass': [M_obs], 'Radius': [R_obs], 'log10_Lambda': [0.0]})
                 scaled_dummy = scaler.transform(dummy)
                 mean_scaled = pd.DataFrame(scaled_dummy[:, :2], columns=['Mass', 'Radius'])
-            
+
             xgb_core = load_xgboost(feature_set)
             explainer = shap.TreeExplainer(xgb_core)
             shap_values = explainer(mean_scaled)
-            
+
             # Replace the scaled data with raw physical values for the plot labels
             shap_values.data = np.round(mean_obs_df.values, 3)
-            
+
             plt.style.use('dark_background')
             fig_shap = plt.figure(figsize=(10, 5))
             shap.plots.waterfall(shap_values[0], show=False)
-            
+
             # Make the plot fully transparent
             fig_shap = plt.gcf()
             fig_shap.patch.set_alpha(0.0)
             ax = plt.gca()
             ax.patch.set_alpha(0.0)
-            
+
             st.pyplot(fig_shap, transparent=True)
             plt.clf()
             plt.style.use('default')
-        
+
         csv = X_mc.to_csv(index=False).encode('utf-8')
         st.download_button(
             label="💾 Download Monte Carlo Tensor (CSV)",

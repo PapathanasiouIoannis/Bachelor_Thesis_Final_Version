@@ -6,6 +6,7 @@ from scipy.interpolate import PchipInterpolator
 from tqdm import tqdm
 
 from src.config import CONFIG
+from src.runtime import runtime_paths
 from src.utils.logger import get_logger
 from src.visualize.style_config import COLORS, set_paper_style
 
@@ -23,6 +24,11 @@ def plot_core_physics(df: pd.DataFrame) -> None:
     """
     set_paper_style()
     logger.info("\n--- Generating Core Physics Plots (Dense Curves) ---")
+    paths = runtime_paths()
+    paths.plots_root.mkdir(parents=True, exist_ok=True)
+
+    def plot_path(config_key):
+        return paths.plots_root / CONFIG[config_key].split("/")[-1]
 
     fig_mr, ax_mr = plt.subplots(figsize=(8, 6))
     fig_lam_m, ax_lam_m = plt.subplots(figsize=(8, 6))
@@ -160,7 +166,7 @@ def plot_core_physics(df: pd.DataFrame) -> None:
     ax_mr.set_title("Mass-Radius Trajectories")
     ax_mr.legend(handles=legend_elements, loc="upper right", framealpha=0.95)
     fig_mr.tight_layout()
-    fig_mr.savefig(CONFIG["PLOT_CORE_MR"], dpi=400)
+    fig_mr.savefig(plot_path("PLOT_CORE_MR"), dpi=400)
     plt.close(fig_mr)
 
     # --- Formatting Plot 2: Lambda vs M ---
@@ -170,7 +176,7 @@ def plot_core_physics(df: pd.DataFrame) -> None:
     ax_lam_m.set_title(r"$\Lambda$ vs Mass")
     ax_lam_m.legend(handles=legend_elements, loc="upper right", framealpha=0.95)
     fig_lam_m.tight_layout()
-    fig_lam_m.savefig(CONFIG["PLOT_CORE_LAMBDA_M"], dpi=400)
+    fig_lam_m.savefig(plot_path("PLOT_CORE_LAMBDA_M"), dpi=400)
     plt.close(fig_lam_m)
 
     # --- Formatting Plot 3: Lambda vs R ---
@@ -180,7 +186,7 @@ def plot_core_physics(df: pd.DataFrame) -> None:
     ax_lam_r.set_title(r"$\Lambda$ vs Radius")
     ax_lam_r.legend(handles=legend_elements, loc="upper right", framealpha=0.95)
     fig_lam_r.tight_layout()
-    fig_lam_r.savefig(CONFIG["PLOT_CORE_LAMBDA_R"], dpi=400)
+    fig_lam_r.savefig(plot_path("PLOT_CORE_LAMBDA_R"), dpi=400)
     plt.close(fig_lam_r)
 
     # --- Formatting Plot 4: CS2 vs Pressure ---
@@ -203,7 +209,7 @@ def plot_core_physics(df: pd.DataFrame) -> None:
         handles=legend_cs2_pressure, loc="upper left", framealpha=0.95
     )
     fig_cs2_pressure.tight_layout()
-    fig_cs2_pressure.savefig(CONFIG["PLOT_PHYSICS_CS2_VS_PRESSURE"], dpi=400)
+    fig_cs2_pressure.savefig(plot_path("PLOT_PHYSICS_CS2_VS_PRESSURE"), dpi=400)
     plt.close(fig_cs2_pressure)
 
     # --- Formatting Plot 5: EoS Bands ---
@@ -214,7 +220,7 @@ def plot_core_physics(df: pd.DataFrame) -> None:
     ax_eos_bands.set_title("Fundamental EoS Bands")
     ax_eos_bands.legend(handles=legend_elements, loc="lower right", framealpha=0.95)
     fig_eos_bands.tight_layout()
-    fig_eos_bands.savefig(CONFIG["PLOT_PHYSICS_EOS_BANDS"], dpi=400)
+    fig_eos_bands.savefig(plot_path("PLOT_PHYSICS_EOS_BANDS"), dpi=400)
     plt.close(fig_eos_bands)
 
     # --- Formatting Plot 6: Mass vs Central Density ---
@@ -225,7 +231,7 @@ def plot_core_physics(df: pd.DataFrame) -> None:
     ax_mass_rho.set_title("Mass vs Central Density")
     ax_mass_rho.legend(handles=legend_elements, loc="lower right", framealpha=0.95)
     fig_mass_rho.tight_layout()
-    fig_mass_rho.savefig(CONFIG["PLOT_PHYSICS_MASS_VS_RHO"], dpi=400)
+    fig_mass_rho.savefig(plot_path("PLOT_PHYSICS_MASS_VS_RHO"), dpi=400)
     plt.close(fig_mass_rho)
 
     logger.info("done Saved Core Physics Plots.")

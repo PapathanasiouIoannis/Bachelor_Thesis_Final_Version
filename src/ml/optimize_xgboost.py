@@ -1,32 +1,43 @@
-import os
+import argparse
 import json
-import pandas as pd
-import numpy as np
-import xgboost as xgb
-import optuna
 import logging
-from sklearn.metrics import precision_recall_curve, auc
-import optuna.visualization as vis
+import os
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+import numpy as np
+import optuna
+import optuna.visualization as vis
+import pandas as pd
+import xgboost as xgb
+from sklearn.metrics import auc, precision_recall_curve
+
+from src.runtime import (
+    add_runtime_args,
+    configure_runtime_from_args,
+    optuna_trials,
+    require_paths,
+    runtime_paths,
+    write_run_manifest,
+    xgb_device_params,
+)
+
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("OPT_XGBOOST")
 
-def load_data():
-    TENSOR_DIR = os.path.join("data", "ml_tensors")
-    logger.info(f"Loading tensors from {TENSOR_DIR}...")
-    
-    train_df = pd.read_parquet(os.path.join(TENSOR_DIR, "train.parquet"), engine='pyarrow')
-    val_df = pd.read_parquet(os.path.join(TENSOR_DIR, "val.parquet"), engine='pyarrow')
-    
-    X_train = train_df.drop(columns=['Label'])
-    y_train = train_df['Label']
-    
-    X_val = val_df.drop(columns=['Label'])
-    y_val = val_df['Label']
-    
-    return X_train, y_train, X_val, y_val
 
-def objective(trial, X_train, y_train, X_val, y_val, scale_pos_weight):
+def load_data(data_root=None):
+    paths = runtime_paths(data_root)
+    tensor_dir = paths.clean_tensor_dir
+    require_paths([tensor_dir / "train.parquet", tensor_dir / "val.parquet"], "XGBoost optimization")
+    logger.info(f"Loading tensors from {tensor_dir}...")
+
+    train_df = pd.read_parquet(tensor_dir / "train.parquet", engine="pyarrow")
+    val_df = pd.read_parquet(tensor_dir / "val.parquet", engine="pyarrow")
+
+    return train_df.drop(columns=["Label"]), train_df["Label"], val_df.drop(columns=["Label"]), val_df["Label"]
+
+
+def objective(trial, X_train, y_train, X_val, y_val, scale_pos_weight, xgb_device):
     param = {
         "verbosity": 0,
         "objective": "binary:logistic",
@@ -35,67 +46,60 @@ def objective(trial, X_train, y_train, X_val, y_val, scale_pos_weight):
         "random_state": 42,
         "n_estimators": 1000,
         "tree_method": "hist",
-        "device": "cuda",
         "max_depth": trial.suggest_int("max_depth", 3, 10),
         "learning_rate": trial.suggest_float("learning_rate", 1e-3, 0.3, log=True),
         "subsample": trial.suggest_float("subsample", 0.5, 1.0),
-        "min_child_weight": trial.suggest_int("min_child_weight", 1, 10)
+        "min_child_weight": trial.suggest_int("min_child_weight", 1, 10),
     }
+    param.update(xgb_device)
 
-    model = xgb.XGBClassifier(
-        **param,
-        use_label_encoder=False,
-        early_stopping_rounds=50,
-        n_jobs=-1
-    )
-    
-    model.fit(
-        X_train, y_train,
-        eval_set=[(X_val, y_val)],
-        verbose=False
-    )
-    
+    model = xgb.XGBClassifier(**param, use_label_encoder=False, early_stopping_rounds=50, n_jobs=-1)
+    model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
+
     y_pred_proba = model.predict_proba(X_val)[:, 1]
     precision, recall, _ = precision_recall_curve(y_val, y_pred_proba)
-    pr_auc = auc(recall, precision)
-    
-    return pr_auc
+    return auc(recall, precision)
 
-def run_optimization():
-    X_train, y_train, X_val, y_val = load_data()
-    
+
+def run_optimization(data_root=None, use_cuda_xgb=False):
+    paths = runtime_paths(data_root)
+    X_train, y_train, X_val, y_val = load_data(paths.data_root)
+
     count_hadronic = np.sum(y_train == 0)
     count_quark = np.sum(y_train == 1)
     scale_pos_weight = count_hadronic / count_quark if count_quark > 0 else 1.0
+    xgb_device = xgb_device_params(use_cuda_xgb)
 
     logger.info("Initializing Optuna Study for XGBoost PR-AUC maximization...")
     study = optuna.create_study(direction="maximize")
-    
-    study.optimize(lambda trial: objective(trial, X_train, y_train, X_val, y_val, scale_pos_weight), n_trials=50)
+    trials = optuna_trials(50)
+    study.optimize(lambda trial: objective(trial, X_train, y_train, X_val, y_val, scale_pos_weight, xgb_device), n_trials=trials)
 
     logger.info(f"Best Trial PR-AUC: {study.best_value:.4f}")
     logger.info(f"Best Params: {study.best_params}")
 
-    # Save Params
-    os.makedirs("outputs", exist_ok=True)
-    out_path = os.path.join("outputs", "xgboost_best_params.json")
-    with open(out_path, "w") as f:
+    paths.outputs_root.mkdir(parents=True, exist_ok=True)
+    out_path = paths.outputs_root / "xgboost_best_params.json"
+    with open(out_path, "w", encoding="utf-8") as f:
         json.dump(study.best_params, f, indent=4)
+    write_run_manifest(paths.outputs_root, "clean_xgboost_optimization", paths.data_root)
     logger.info(f"Saved optimized hyperparameters to {out_path}")
 
-    # Visualizations
-    plots_dir = os.path.join("plots", "ml_optimization")
-    os.makedirs(plots_dir, exist_ok=True)
-
+    plots_dir = paths.plots_root / "ml_optimization"
+    plots_dir.mkdir(parents=True, exist_ok=True)
     try:
-        fig_hist = vis.plot_optimization_history(study)
-        fig_hist.write_image(os.path.join(plots_dir, "xgboost_opt_history.pdf"))
-        
-        fig_para = vis.plot_parallel_coordinate(study)
-        fig_para.write_image(os.path.join(plots_dir, "xgboost_parallel_coordinate.pdf"))
+        vis.plot_optimization_history(study).write_image(plots_dir / "xgboost_opt_history.pdf")
+        vis.plot_parallel_coordinate(study).write_image(plots_dir / "xgboost_parallel_coordinate.pdf")
         logger.info(f"Saved Optuna visualizations to {plots_dir}")
     except Exception as e:
         logger.warning(f"Could not save visualizations (make sure kaleido/plotly are installed): {e}")
 
+
 if __name__ == "__main__":
-    run_optimization()
+    parser = argparse.ArgumentParser(description="Optimize clean XGBoost classifier.")
+    add_runtime_args(parser)
+    parser.add_argument("--use-cuda-xgb", action="store_true", help="request CUDA-backed XGBoost")
+    parser.add_argument("--fast", action="store_true", help="use readiness-sized HPO defaults")
+    args = parser.parse_args()
+    configure_runtime_from_args(args)
+    run_optimization(args.data_root, args.use_cuda_xgb)

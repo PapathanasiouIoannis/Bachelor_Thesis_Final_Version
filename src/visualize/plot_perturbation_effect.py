@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
+from src.runtime import runtime_paths
 
 sys.path.append(os.path.abspath("."))
 try:
@@ -50,8 +51,10 @@ def load_all_curves(hadronic_dir, quark_dir):
 def generate_individual_curve_plots(n_curves_per_phase=2, max_scatter_points_per_curve=600):
     logger.info("Generating Individual Curve Plot with specific error clouds...")
     
-    clean_df = load_all_curves(os.path.join("data", "ml_ready_hadronic"), os.path.join("data", "ml_ready_quark"))
-    if clean_df.empty: return
+    paths = runtime_paths()
+    clean_df = load_all_curves(str(paths.hadronic_ready_dir), str(paths.quark_ready_dir))
+    if clean_df.empty:
+        raise FileNotFoundError("No clean curves available for perturbation visualization.")
 
     # Randomly select curves
     np.random.seed(42)
@@ -145,7 +148,7 @@ def generate_individual_curve_plots(n_curves_per_phase=2, max_scatter_points_per
                
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     
-    out_dir = os.path.join("plots_perturb", "ml_advanced")
+    out_dir = paths.plots_perturb_root / "ml_advanced"
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, "perturbation_effect_contours.pdf")
     
