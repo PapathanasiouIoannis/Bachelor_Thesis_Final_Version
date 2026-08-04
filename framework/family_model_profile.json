@@ -1,0 +1,71 @@
+{
+  "profile_id": "family_logistic_mr_v1_pretest_lock",
+  "lock_state": "PRE_TEST_LOCKED",
+  "claim_boundary": "Fixed repository hadronic-surrogate versus analytic CFL MIT-bag curve discrimination on unseen EoS families; not universal phase identification and not an observational deployment model.",
+  "data_identity": {
+    "generation_profile_id": "family_pilot_v1_2p0",
+    "split_profile_id": "family_holdout_v1_pre_model_lock",
+    "curve_dataset_sha256": "b2cb533f575d3a1f9632c9a1e580b5324a9aa393abd157c413036f3e56de8e24",
+    "split_manifest_sha256": "3901a8433e2f6d16433c8d26d87324af70dea1aab2bdcbabb8035054fcaa2230",
+    "split_profile_sha256": "d1c3d277ecd7dcbad3c6b6c3516eec153f4a26f4200936b180dc8c6c22023dc7"
+  },
+  "development_evidence": {
+    "shortcut_audit_path": "docs/family_shortcut_audit.json",
+    "shortcut_audit_sha256": "b4cae651ef6647a2770bc4eb9b91c1efbaa4ee99908cd20f08003ca6294a9b69",
+    "model_selection_path": "docs/family_model_selection.json",
+    "model_selection_sha256": "fd52664c26e2993346ef2bab3444fa2b5cea619f607d6209046ed961fd1f5526",
+    "robustness_path": "docs/family_development_robustness.json",
+    "robustness_sha256": "6faad4df5757c6252b30ce9444dd93d31e625eece41ed43bd4730ce8ae22fb6b",
+    "selected_candidate_id": "logistic_mr_c0p1",
+    "inner_family_balanced_accuracy": 1.0,
+    "validation_family_balanced_accuracy": 1.0,
+    "exact_fixed_specification_permutation_p": 0.0005827505827505828
+  },
+  "model": {
+    "architecture": "sklearn.pipeline.StandardScaler+LogisticRegression",
+    "feature_set": "MR",
+    "feature_columns": [
+      "Radius_M1p00",
+      "Radius_M1p05",
+      "Radius_M1p10",
+      "Radius_M1p15",
+      "Radius_M1p20",
+      "Radius_M1p25",
+      "Radius_M1p30",
+      "Radius_M1p35",
+      "Radius_M1p40",
+      "Radius_M1p45",
+      "Radius_M1p50",
+      "Radius_M1p55",
+      "Radius_M1p60",
+      "Radius_M1p65",
+      "Radius_M1p70",
+      "Radius_M1p75",
+      "Radius_M1p80",
+      "Radius_M1p85",
+      "Radius_M1p90",
+      "Radius_M1p95",
+      "Radius_M2p00"
+    ],
+    "C": 0.1,
+    "solver": "lbfgs",
+    "maximum_iterations": 5000,
+    "random_state": 42,
+    "decision_threshold": 0.5,
+    "preprocessing": "StandardScaler fit only on the final development set",
+    "sample_weighting": "Inverse curves per physical family and inverse number of families per class",
+    "final_fit_scope": "locked train plus validation families only"
+  },
+  "final_test": {
+    "use_once": true,
+    "expected_samples": 12,
+    "expected_family_groups": ["H_MDI", "Q_CFL14"],
+    "expected_eos_ids": ["MDI-2", "CFL14"],
+    "quark_parameter_block": "Q_CFL_B100",
+    "independent_family_units": 2
+  },
+  "predeclared_sensitivities": {
+    "amplitude_probability_stability": true,
+    "strict_2p08_note": "Neither locked test EoS reaches 2.08 M_sun over the shared A grid. A strict-2.08 result can therefore be reported only as development-family OOF sensitivity, never as an independent test."
+  }
+}
