@@ -1,8 +1,9 @@
 # Controlled compact-star EoS comparison
 
-This thesis code solves the TOV and tidal equations for a controlled pair of
-equation-of-state models and studies whether their observable curves can be
-distinguished by XGBoost and PyTorch MLP classifiers.
+This thesis code solves the TOV and tidal equations and studies whether fixed
+equation-of-state model families can be distinguished from their observable
+curves. The repository retains the original controlled APR-1/CFL4 experiment
+and adds an audited, leakage-resistant multi-family pilot.
 
 The current experiment is deliberately narrow:
 
@@ -18,6 +19,13 @@ This supports an **APR-1-surrogate versus fixed-CFL4 model-pair comparison**.
 It does not, by itself, identify a general hadronic-versus-quark signature.
 See [the controlled sweep rationale](docs/CONTROLLED_EOS_SWEEP.md) and
 [the classification risk audit](docs/CLASSIFICATION_RISK_AUDIT.md).
+
+The multi-family pilot expands this narrow pair to 9 hadronic and 9 published
+CFL baselines, while preserving the same shared deformation controls. Its claim
+is still limited to **repository hadronic-surrogate versus analytic CFL MIT-bag
+model discrimination on unseen fixed EoS families**. See the
+[family profile](docs/FAMILY_PILOT_PROFILE.md) and
+[final classification report](docs/FAMILY_CLASSIFICATION_FINAL_REPORT.md).
 
 ## Setup
 
@@ -67,6 +75,35 @@ python perturb_main.py
 More options and artifact details are in
 [the execution guide](docs/EXECUTION_GUIDE.md).
 
+## Multi-family pilot
+
+The family workflow deliberately uses separate runtime artifacts under
+`data/family_pilot_v1/`:
+
+```bash
+python family_physics_main.py --data-root data/family_pilot_v1 --n-jobs 4 --force-regenerate
+python family_ml_prepare.py --data-root data/family_pilot_v1
+python family_shortcut_audit.py --data-root data/family_pilot_v1 --output-dir docs
+python family_model_select.py --data-root data/family_pilot_v1 --output-dir docs
+python family_development_robustness.py --data-root data/family_pilot_v1 --output-dir docs
+```
+
+The model profile in `framework/family_model_profile.json` was committed before
+the two test families were opened. `family_final_test.py` enforces a one-shot
+marker and refuses a repeat evaluation. Post-test interpretation and the strict
+2.08-M_sun development sensitivity are produced by:
+
+```bash
+python family_posttest_report.py --data-root data/family_pilot_v1 --output-dir docs
+```
+
+The frozen radius-only logistic model achieved 1.00 family-balanced accuracy
+on 13 training OOF families, 2 validation families, and the one-time 2-family
+test. These are only 17 independent physical-family groups; the six A variants
+per EoS are correlated sensitivity variants. A single low-mass radius already
+separates much of this catalog, so the result must not be described as a
+universal or opaque phase classifier.
+
 ## Data-integrity controls
 
 - paired hadronic/quark curves share a `Sweep_ID` and never cross splits;
@@ -79,6 +116,12 @@ More options and artifact details are in
 - hyperparameter search uses class-valid grouped inner cross-validation on
   training groups;
 - validation labels choose decision thresholds; test labels do not.
+
+For the family pilot, the split unit is `Family_Group_ID`, each complete curve
+is one ML sample, all A variants remain together, every family has equal model
+weight within its class, and the final test identities were locked before model
+fitting. Shortcut probes demonstrate that raw sequence geometry and provenance
+metadata are perfect label proxies; they are hard-forbidden from model input.
 
 Unresolved scientific limitations, including baseline confounding and the need
 for an external-baseline test, are recorded in the risk audit.
