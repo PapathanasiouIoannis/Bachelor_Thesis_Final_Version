@@ -4,6 +4,7 @@ import pytest
 
 from framework.eos_sweep import (
     GaussianDeformation,
+    QuarkParameters,
     SweepPoint,
     amplitude_grid,
     build_quark_eos,
@@ -66,6 +67,18 @@ def test_published_cfl4_surface_and_pressure_reconstruction():
         reconstructed[2:-2], eos.sound_speed_squared[2:-2], rtol=2e-4, atol=2e-5
     )
     assert eos.eos_callable.eps_surf == pytest.approx(eos.eps_surface)
+
+
+def test_published_cfl_catalog_can_include_massless_strange_limit():
+    parameters = QuarkParameters(bag_b=60.0, gap_delta=50.0, strange_mass=0.0)
+    _, energy, sound_speed, energy_per_baryon = cfl_baseline_grids(parameters)
+
+    assert np.all(np.isfinite(energy))
+    assert np.all((sound_speed > 0.0) & (sound_speed <= 1.0))
+    assert energy_per_baryon <= CONFIG["M_N"]
+
+    with pytest.raises(ValueError, match="non-negative"):
+        QuarkParameters(bag_b=60.0, gap_delta=50.0, strange_mass=-1.0)
 
 
 def test_workers_emit_class_paired_fixed_metadata(monkeypatch):

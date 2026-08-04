@@ -49,8 +49,12 @@ class QuarkParameters:
 
     def __post_init__(self) -> None:
         values = (self.bag_b, self.gap_delta, self.strange_mass)
-        if not all(np.isfinite(value) and value > 0.0 for value in values):
-            raise ValueError("CFL parameters B, Delta, and m_s must be finite and positive.")
+        if not all(np.isfinite(value) for value in values):
+            raise ValueError("CFL parameters B, Delta, and m_s must be finite.")
+        if self.bag_b <= 0.0 or self.gap_delta <= 0.0 or self.strange_mass < 0.0:
+            raise ValueError(
+                "CFL parameters B and Delta must be positive; m_s must be non-negative."
+            )
 
     @property
     def baseline_name(self) -> str:
@@ -318,8 +322,15 @@ def hadronic_baseline_grids(
     if baseline_name not in core_library:
         raise KeyError(f"Unknown hadronic baseline: {baseline_name}")
     anchor = core_library[baseline_name]
+    # The source of the repository's analytic fits specifies a distinct
+    # crust/core pressure for PS and a common value for the other 20 models.
+    # Keeping this decision here makes all framework consumers use the same
+    # auditable matching convention.
+    transition_pressure_requested = (
+        0.696 if baseline_name == "PS" else CONFIG["P_TRANS_DEFAULT"]
+    )
     transition_pressure, energy_shift = resolve_density_shifted_transition(
-        crusts, anchor, CONFIG["P_TRANS_DEFAULT"]
+        crusts, anchor, transition_pressure_requested
     )
     pressure = np.linspace(
         transition_pressure, CONFIG["P_GRID_MAX"], CONFIG["P_GRID_POINTS"]

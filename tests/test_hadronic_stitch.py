@@ -49,3 +49,18 @@ def test_framework_apr1_is_density_continuous_and_does_not_clip_cs2():
     assert eos.energy_density[0] == pytest.approx(crust_energy, rel=1e-10)
     assert np.all(eos.sound_speed_squared > 0.0)
     assert np.all(eos.sound_speed_squared <= 1.0)
+
+
+def test_framework_uses_the_documented_ps_transition_pressure():
+    eos = build_hadronic_eos(
+        "PS",
+        GaussianDeformation(
+            amplitude=0.0,
+            epsilon0=CONFIG["CONTROLLED_PERTURB_EPS0"],
+            sigma=CONFIG["CONTROLLED_PERTURB_SIGMA"],
+        ),
+    )
+
+    assert eos.transition_pressure == pytest.approx(0.696)
+    crust_energy, _ = eos.eos_callable(eos.transition_pressure)
+    assert eos.energy_density[0] == pytest.approx(crust_energy, rel=1e-10)
