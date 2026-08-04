@@ -1,4 +1,5 @@
 from framework.eos_catalog import CFL_CATALOG, HADRONIC_CATALOG, literature_catalog_rows
+from framework.audit_family_amplitudes import selected_catalog_entries
 from src.physics.get_eos_library import get_eos_library
 
 
@@ -40,3 +41,14 @@ def test_combined_machine_readable_catalog_has_40_rows():
 
     assert len(rows) == 40
     assert {row["matter_class"] for row in rows} == {"hadronic", "quark"}
+
+
+def test_one_week_profile_selection_is_catalogued_and_excludes_uncited_ps(tmp_path):
+    summary_path = tmp_path / "summary.json"
+    summary_path.write_text(
+        '{"recommended_2p0_eos_ids": ["APR-1", "CFL4"]}', encoding="utf-8"
+    )
+
+    entries = selected_catalog_entries(summary_path)
+
+    assert [entry.eos_id for entry in entries] == ["APR-1", "CFL4"]

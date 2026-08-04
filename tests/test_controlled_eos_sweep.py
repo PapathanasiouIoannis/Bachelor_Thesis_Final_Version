@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import pytest
+from types import SimpleNamespace
 
 from framework.eos_sweep import (
     GaussianDeformation,
@@ -14,6 +15,7 @@ from physics_main import _validate_controlled_dataset
 from src.config import CONFIG
 from src.physics import worker_hadronic_gen as hadronic_worker_module
 from src.physics import worker_quark_gen as quark_worker_module
+from src.physics import controlled_generation as controlled_generation_module
 from src.physics.worker_quark_gen import controlled_quark_parameters
 
 
@@ -116,3 +118,41 @@ def test_workers_emit_class_paired_fixed_metadata(monkeypatch):
     duplicate_pair = pd.concat([combined, second_curve], ignore_index=True)
     with pytest.raises(RuntimeError, match="exactly one Curve_ID"):
         _validate_controlled_dataset(duplicate_pair, [point])
+
+
+def test_sequence_validation_supports_declared_mass_sensitivity_profile(monkeypatch):
+    curve = [
+        [0.2, 15.0, 1000.0, 1.0, 100.0, 0.1, 0.0],
+        [1.4, 12.0, 200.0, 40.0, 350.0, 0.3, 0.0],
+        [2.04, 11.0, 20.0, 120.0, 700.0, 0.5, 0.0],
+    ]
+    monkeypatch.setattr(
+        controlled_generation_module,
+        "solve_sequence",
+        lambda *args, **kwargs: (curve, [], 2.04),
+    )
+    monkeypatch.setattr(
+        controlled_generation_module, "verify_eos_physical_validity", lambda _: True
+    )
+    monkeypatch.setattr(
+        controlled_generation_module,
+        "extract_features",
+        lambda *args: {
+            "r_14": 12.0,
+            "cs2_at_14": 0.3,
+            "slopes": {1.4: -0.5, 1.6: -0.5, 1.8: -0.5, 2.0: -0.5},
+        },
+    )
+    eos = SimpleNamespace(eos_callable=lambda _: (1.0, 0.3), p_max_causal=1000.0)
+
+    with pytest.raises(RuntimeError, match="2.08"):
+        controlled_generation_module.solve_and_validate_sequence(eos, is_quark=False)
+
+    _, _, maximum_mass = controlled_generation_module.solve_and_validate_sequence(
+        eos,
+        is_quark=False,
+        minimum_maximum_mass=2.0,
+        maximum_maximum_mass=3.0,
+        radius_14_bounds=(9.5, 14.5),
+    )
+    assert maximum_mass == pytest.approx(2.04)

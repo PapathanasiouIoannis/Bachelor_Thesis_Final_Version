@@ -44,8 +44,15 @@ def solve_and_validate_sequence(
     framework_eos: FrameworkEos,
     *,
     is_quark: bool,
+    minimum_maximum_mass: float | None = None,
+    maximum_maximum_mass: float | None = None,
+    radius_14_bounds: tuple[float, float] | None = None,
 ) -> tuple[list, dict, float]:
-    """Solve one EoS and enforce the same viability criteria for both classes."""
+    """Solve one EoS and enforce class-neutral viability criteria.
+
+    Optional screens support declared sensitivity profiles while preserving the
+    controlled APR-1/CFL4 defaults for existing callers.
+    """
 
     curve, _, maximum_mass = solve_sequence(
         framework_eos.eos_callable,
@@ -70,17 +77,38 @@ def solve_and_validate_sequence(
     if features is None or not np.isfinite(features["r_14"]):
         raise RuntimeError("Could not extract finite canonical 1.4-M_sun features.")
 
-    common_mass_upper = min(CONFIG["H_M_MAX_UPPER"], CONFIG["Q_M_MAX_UPPER"])
+    mass_lower = (
+        CONFIG["M_MAX_LOWER_BOUND"]
+        if minimum_maximum_mass is None
+        else float(minimum_maximum_mass)
+    )
+    common_mass_upper = (
+        min(CONFIG["H_M_MAX_UPPER"], CONFIG["Q_M_MAX_UPPER"])
+        if maximum_maximum_mass is None
+        else float(maximum_maximum_mass)
+    )
+    radius_lower, radius_upper = radius_14_bounds or (
+        CONFIG["CONTROLLED_R14_MIN"],
+        CONFIG["CONTROLLED_R14_MAX"],
+    )
+    if not np.isfinite(mass_lower) or not np.isfinite(common_mass_upper):
+        raise ValueError("Maximum-mass validation bounds must be finite.")
+    if mass_lower >= common_mass_upper:
+        raise ValueError("Maximum-mass validation bounds must be increasing.")
+    if not np.isfinite(radius_lower) or not np.isfinite(radius_upper):
+        raise ValueError("R_1.4 validation bounds must be finite.")
+    if radius_lower >= radius_upper:
+        raise ValueError("R_1.4 validation bounds must be increasing.")
     viability_failures = []
-    if not CONFIG["M_MAX_LOWER_BOUND"] <= maximum_mass <= common_mass_upper:
+    if not mass_lower <= maximum_mass <= common_mass_upper:
         viability_failures.append(
             f"M_max={maximum_mass:.6g} outside "
-            f"[{CONFIG['M_MAX_LOWER_BOUND']}, {common_mass_upper}] M_sun"
+            f"[{mass_lower}, {common_mass_upper}] M_sun"
         )
-    if not CONFIG["CONTROLLED_R14_MIN"] <= features["r_14"] <= CONFIG["CONTROLLED_R14_MAX"]:
+    if not radius_lower <= features["r_14"] <= radius_upper:
         viability_failures.append(
             f"R_1.4={features['r_14']:.6g} outside "
-            f"[{CONFIG['CONTROLLED_R14_MIN']}, {CONFIG['CONTROLLED_R14_MAX']}] km"
+            f"[{radius_lower}, {radius_upper}] km"
         )
     if viability_failures:
         raise RuntimeError("; ".join(viability_failures))

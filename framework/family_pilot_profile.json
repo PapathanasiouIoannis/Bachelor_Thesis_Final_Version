@@ -1,0 +1,47 @@
+{
+  "profile_id": "family_pilot_v1_2p0",
+  "claim_boundary": "Repository hadronic-surrogate versus analytic CFL MIT-bag discrimination with held-out fixed EoS baselines",
+  "source_audit": {
+    "a0_summary": "docs/eos_feasibility_summary.json",
+    "amplitude_scan": "docs/eos_family_amplitude_scan.csv",
+    "selection_rule": "Start from provenance-screened A=0 baselines passing the 2.0 Msun sensitivity screen; remove MDI-3 because it breaches the shared R1.4 screen for A >= 0.03 and adds no family group beyond retained MDI-2."
+  },
+  "deformation": {
+    "epsilon0_mev_fm3": 220.0,
+    "sigma_mev_fm3": 50.0,
+    "amplitudes": [0.0, 0.01, 0.02, 0.03, 0.04, 0.05]
+  },
+  "screens": {
+    "minimum_maximum_mass_msun": 2.0,
+    "maximum_maximum_mass_msun": 3.0,
+    "radius_1p4_km": [9.5, 14.5],
+    "observable_mass_grid_msun": [1.0, 2.0]
+  },
+  "hadronic_eos_ids": [
+    "APR-1",
+    "BGP",
+    "BL-1",
+    "HHJ-2",
+    "MDI-2",
+    "SCVBB",
+    "SkI4",
+    "Ska",
+    "WFF-2"
+  ],
+  "quark_eos_ids": [
+    "CFL1",
+    "CFL3",
+    "CFL4",
+    "CFL5",
+    "CFL6",
+    "CFL7",
+    "CFL9",
+    "CFL10",
+    "CFL14"
+  ],
+  "grouping": {
+    "primary_split_unit": "family_group_id",
+    "quark_secondary_ood_unit": "parameter_block_id",
+    "rule": "Every A variant of a fixed EoS and every related hadronic variant sharing family_group_id must remain in one split."
+  }
+}
