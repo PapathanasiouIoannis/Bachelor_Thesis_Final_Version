@@ -1,21 +1,21 @@
 import argparse
 import json
 import logging
-import os
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import shap
 import xgboost as xgb
-from sklearn.metrics import auc, f1_score, precision_recall_curve
 
+from src.ml.metrics import binary_metrics, select_macro_f1_threshold
 from src.runtime import (
     add_runtime_args,
     configure_runtime_from_args,
     fast_enabled,
+    require_artifact_lineage,
     require_paths,
     runtime_paths,
+    tensor_lineage_metadata,
     write_run_manifest,
     xgb_device_params,
 )
@@ -50,6 +50,7 @@ def load_data(data_root=None):
 
 def main(data_root=None, use_cuda_xgb=False):
     paths = runtime_paths(data_root)
+    features = ["Mass", "Radius", "log10_Lambda"]
     output_dir = paths.outputs_root / "xgboost"
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -62,6 +63,13 @@ def main(data_root=None, use_cuda_xgb=False):
 
     params_path = paths.outputs_root / "xgboost_best_params.json"
     require_paths([params_path], "Final XGBoost training")
+    require_artifact_lineage(
+        params_path,
+        paths.clean_tensor_dir,
+        "Final XGBoost training",
+        component="clean_xgboost_hpo_parameters",
+        selected_features=features,
+    )
     with open(params_path, "r", encoding="utf-8") as f:
         best_params = json.load(f)
     logger.info(f"Loaded best params: {best_params}")
@@ -84,22 +92,28 @@ def main(data_root=None, use_cuda_xgb=False):
     model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
 
     logger.info("Evaluating on strictly held-out Test set...")
+    validation_probabilities = model.predict_proba(X_val)[:, 1]
+    threshold = select_macro_f1_threshold(y_val, validation_probabilities)
     y_pred_proba = model.predict_proba(X_test)[:, 1]
-    y_pred = model.predict(X_test)
-
-    precision, recall, _ = precision_recall_curve(y_test, y_pred_proba)
-    pr_auc = auc(recall, precision)
-    f1 = f1_score(y_test, y_pred)
-    metrics = {"PR-AUC": float(pr_auc), "F1-Score": float(f1)}
+    metrics = binary_metrics(y_test, y_pred_proba, threshold)
 
     with open(output_dir / "metrics.json", "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=4)
 
-    logger.info(f"Final Test Metrics: PR-AUC={pr_auc:.4f}, F1={f1:.4f}")
+    logger.info("Final Test Metrics: %s", metrics)
 
     model_path = output_dir / "xgboost_weights.json"
     model.save_model(model_path)
-    write_run_manifest(output_dir, "clean_xgboost_final", paths.data_root)
+    write_run_manifest(
+        output_dir,
+        "clean_xgboost_final",
+        paths.data_root,
+        {
+            "decision_threshold_selected_on_validation": threshold,
+            "selected_features": features,
+            "tensor_lineage": tensor_lineage_metadata(paths.clean_tensor_dir),
+        },
+    )
     logger.info(f"Model saved to {model_path}")
 
     if fast_enabled():

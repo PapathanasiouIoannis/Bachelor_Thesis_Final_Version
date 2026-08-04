@@ -8,11 +8,13 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from sklearn.metrics import auc, f1_score, precision_recall_curve
+from sklearn.metrics import auc, precision_recall_curve
 from torch.utils.data import DataLoader, TensorDataset
 
+from src.config import CONFIG
+from src.ml.metrics import binary_metrics, select_macro_f1_threshold
 from src.ml.mlp_model import build_mlp, load_mlp_params
-from src.runtime import add_runtime_args, configure_runtime_from_args, require_paths, runtime_paths, train_epochs, write_run_manifest
+from src.runtime import add_runtime_args, configure_runtime_from_args, require_artifact_lineage, require_paths, runtime_paths, tensor_lineage_metadata, train_epochs, write_run_manifest
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -46,6 +48,10 @@ def load_and_preprocess_data(data_root=None):
 
 def main(data_root=None):
     paths = runtime_paths(data_root)
+    features = ["Mass", "Radius", "log10_Lambda"]
+    torch.manual_seed(CONFIG["ML_RANDOM_SEED"])
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(CONFIG["ML_RANDOM_SEED"])
     output_dir = paths.outputs_root / "mlp"
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -53,6 +59,13 @@ def main(data_root=None):
 
     params_path = paths.outputs_root / "mlp_best_params.json"
     require_paths([params_path], "Final MLP training")
+    require_artifact_lineage(
+        params_path,
+        paths.clean_tensor_dir,
+        "Final MLP training",
+        component="clean_mlp_hpo_parameters",
+        selected_features=features,
+    )
     best_params = load_mlp_params(params_path)
     logger.info(f"Loaded best params: {best_params}")
 
@@ -126,6 +139,13 @@ def main(data_root=None):
 
     logger.info("Evaluating on strictly held-out Test set...")
     model.eval()
+    validation_probabilities = []
+    with torch.no_grad():
+        for x_batch, _ in val_loader:
+            validation_probabilities.extend(
+                torch.sigmoid(model(x_batch.to(device))).cpu().numpy()
+            )
+    threshold = select_macro_f1_threshold(y_val, validation_probabilities)
     test_preds_proba = []
     with torch.no_grad():
         for X_batch, _ in test_loader:
@@ -133,19 +153,23 @@ def main(data_root=None):
             test_preds_proba.extend(probs.cpu().numpy())
 
     y_pred_proba = np.array(test_preds_proba).flatten()
-    y_pred = (y_pred_proba >= 0.5).astype(int)
-    precision_t, recall_t, _ = precision_recall_curve(y_test, y_pred_proba)
-    test_pr_auc = auc(recall_t, precision_t)
-    f1 = f1_score(y_test, y_pred)
-
-    metrics = {"PR-AUC": float(test_pr_auc), "F1-Score": float(f1)}
+    metrics = binary_metrics(y_test, y_pred_proba, threshold)
     with open(output_dir / "metrics.json", "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=4)
-    logger.info(f"Final Test Metrics: PR-AUC={test_pr_auc:.4f}, F1={f1:.4f}")
+    logger.info("Final Test Metrics: %s", metrics)
 
     model_path = output_dir / "mlp_weights.pth"
     torch.save(model.state_dict(), model_path)
-    write_run_manifest(output_dir, "clean_mlp_final", paths.data_root)
+    write_run_manifest(
+        output_dir,
+        "clean_mlp_final",
+        paths.data_root,
+        {
+            "decision_threshold_selected_on_validation": threshold,
+            "selected_features": features,
+            "tensor_lineage": tensor_lineage_metadata(paths.clean_tensor_dir),
+        },
+    )
     logger.info(f"Model saved to {model_path}")
 
     fig, ax1 = plt.subplots(figsize=(10, 6))

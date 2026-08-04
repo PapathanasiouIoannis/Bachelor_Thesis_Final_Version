@@ -77,7 +77,7 @@ def run_noise_degradation():
         ax.plot(noise_pct, expected, color="darkblue", linewidth=2, label="Expected Prob")
         ax.set_title(f"XGBoost | {name}")
         if i == 0:
-            ax.set_ylabel("Quark Phase Probability (%)")
+            ax.set_ylabel("Uncalibrated CFL4 model score (%)")
         ax.set_xlim(0, 100)
         ax.set_ylim(0, 100)
         ax.grid(True, alpha=0.4, linestyle="--")
@@ -93,7 +93,7 @@ def run_noise_degradation():
         ax.set_title(f"MLP | {name}")
         ax.set_xlabel(r"$\Lambda$ Observational Noise Level (%)")
         if i == 0:
-            ax.set_ylabel("Quark Phase Probability (%)")
+            ax.set_ylabel("Uncalibrated CFL4 model score (%)")
         ax.grid(True, alpha=0.4, linestyle="--")
         ax.legend(loc="best")
 

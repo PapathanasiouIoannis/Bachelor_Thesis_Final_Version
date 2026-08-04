@@ -1,152 +1,37 @@
+"""Build leakage-resistant clean tensors from controlled physics curves."""
+
+from __future__ import annotations
+
 import argparse
-import glob
 import logging
-import os
 
-import numpy as np
-import pandas as pd
-from joblib import dump
-from sklearn.model_selection import GroupShuffleSplit
-from sklearn.preprocessing import StandardScaler
-
-from src.runtime import add_runtime_args, configure_runtime_from_args, runtime_paths, write_run_manifest
+from src.ml.dataset import load_and_preprocess
+from src.ml.tensor_pipeline import build_tensor_artifacts
+from src.runtime import add_runtime_args, configure_runtime_from_args, runtime_paths
 
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 logger = logging.getLogger("DATA_PIPELINE")
 
 
-def _load_parquet_dir(directory: str, label: int, class_name: str) -> pd.DataFrame:
-    files = glob.glob(os.path.join(directory, "*.parquet"))
-    if not files:
-        raise FileNotFoundError(f"No {class_name} parquet files found in {directory}")
-    df = pd.concat([pd.read_parquet(path, engine="pyarrow") for path in files], ignore_index=True)
-    df["Label"] = label
-    return df
-
-
-def load_and_preprocess(hadronic_dir: str, quark_dir: str) -> pd.DataFrame:
-    logger.info(f"Loading hadronic data from {hadronic_dir}...")
-    df_hadronic = _load_parquet_dir(hadronic_dir, 0, "hadronic")
-
-    logger.info(f"Loading quark data from {quark_dir}...")
-    df_quark = _load_parquet_dir(quark_dir, 1, "quark")
-
-    df = pd.concat([df_hadronic, df_quark], ignore_index=True)
-    logger.info(f"Combined dataset shape: {df.shape}")
-
-    logger.info("Performing feature engineering...")
-    initial_len = len(df)
-    df = df[df["Radius"] > 0].copy()
-    dropped = initial_len - len(df)
-    if dropped > 0:
-        logger.warning(f"Dropped {dropped} rows with Radius <= 0.")
-
-    df["C"] = df["Mass"] / df["Radius"]
-
-    if "Lambda" in df.columns:
-        len_before_lambda = len(df)
-        df = df[df["Lambda"] > 0]
-        if len_before_lambda - len(df) > 0:
-            logger.warning(f"Dropped {len_before_lambda - len(df)} rows with Lambda <= 0.")
-        df["log10_Lambda"] = np.log10(df["Lambda"])
-    elif "LogLambda" in df.columns:
-        logger.info("LogLambda is already present in dataset. Renaming to log10_Lambda for consistency.")
-        df.rename(columns={"LogLambda": "log10_Lambda"}, inplace=True)
-    else:
-        raise KeyError("Neither 'Lambda' nor 'LogLambda' found in the dataset.")
-
-    df.replace([np.inf, -np.inf], np.nan, inplace=True)
-    df.dropna(subset=["Mass", "Radius", "log10_Lambda", "Curve_ID", "Label"], inplace=True)
-
-    initial_clean_len = len(df)
-    duplicate_mask = df[["Mass", "Radius", "log10_Lambda", "Label"]].round(5).duplicated()
-    df = df[~duplicate_mask].copy()
-
-    if initial_clean_len - len(df) > 0:
-        logger.warning(f"Dropped {initial_clean_len - len(df)} within-class duplicate rows (5-decimal precision).")
-
-    logger.info(f"Data shape after feature engineering and cleaning: {df.shape}")
-    return df
-
-
-def _write_split_sidecar(output_dir: str, x_train, x_val, x_test) -> None:
-    logger.info("Saving split audit sidecar (Curve_ID -> split assignment)...")
-    sidecar_full = pd.concat(
-        [
-            x_train[["Curve_ID"]].assign(Split="train"),
-            x_val[["Curve_ID"]].assign(Split="val"),
-            x_test[["Curve_ID"]].assign(Split="test"),
-        ],
-        ignore_index=True,
-    )
-    sidecar = sidecar_full.drop_duplicates(subset=["Curve_ID", "Split"])
-    split_counts = sidecar.groupby("Curve_ID")["Split"].nunique()
-    leaked_ids = split_counts[split_counts > 1]
-    if not leaked_ids.empty:
-        raise RuntimeError(f"Curve_ID split leakage detected before tensor save: {len(leaked_ids)} curves span multiple splits.")
-    sidecar.to_parquet(os.path.join(output_dir, "split_audit.parquet"), engine="pyarrow", index=False)
-    logger.info(f"Saved split_audit.parquet with {len(sidecar)} Curve_ID/split rows.")
-
-
-def run_pipeline(data_root=None):
+def run_pipeline(data_root=None) -> None:
     paths = runtime_paths(data_root)
-    output_dir = str(paths.clean_tensor_dir)
-    os.makedirs(output_dir, exist_ok=True)
-
-    df = load_and_preprocess(str(paths.hadronic_ready_dir), str(paths.quark_ready_dir))
-
-    physical_features = ["Mass", "Radius", "log10_Lambda"]
-    x = df[physical_features + ["Curve_ID"]]
-    y = df["Label"]
-    groups = df["Curve_ID"]
-
-    logger.info("Performing Grouped Train/Val/Test Split (80/10/10)...")
-    gss1 = GroupShuffleSplit(n_splits=1, test_size=0.10, random_state=42)
-    train_val_idx, test_idx = next(gss1.split(x, y, groups))
-
-    x_train_val = x.iloc[train_val_idx]
-    y_train_val = y.iloc[train_val_idx]
-    groups_train_val = groups.iloc[train_val_idx]
-
-    x_test = x.iloc[test_idx].copy()
-    y_test = y.iloc[test_idx].copy()
-
-    gss2 = GroupShuffleSplit(n_splits=1, test_size=1 / 9, random_state=42)
-    train_idx, val_idx = next(gss2.split(x_train_val, y_train_val, groups_train_val))
-
-    x_train = x_train_val.iloc[train_idx].copy()
-    y_train = y_train_val.iloc[train_idx].copy()
-    x_val = x_train_val.iloc[val_idx].copy()
-    y_val = y_train_val.iloc[val_idx].copy()
-
-    _write_split_sidecar(output_dir, x_train, x_val, x_test)
-
-    x_train.drop(columns=["Curve_ID"], inplace=True)
-    x_val.drop(columns=["Curve_ID"], inplace=True)
-    x_test.drop(columns=["Curve_ID"], inplace=True)
-
-    logger.info(f"Train size: {len(x_train)} (Hadronic: {sum(y_train == 0)}, Quark: {sum(y_train == 1)})")
-    logger.info(f"Val size:   {len(x_val)} (Hadronic: {sum(y_val == 0)}, Quark: {sum(y_val == 1)})")
-    logger.info(f"Test size:  {len(x_test)} (Hadronic: {sum(y_test == 0)}, Quark: {sum(y_test == 1)})")
-
-    logger.info("Standardizing features based on training distribution...")
-    scaler = StandardScaler()
-    x_train_scaled = pd.DataFrame(scaler.fit_transform(x_train), columns=physical_features, index=x_train.index)
-    x_val_scaled = pd.DataFrame(scaler.transform(x_val), columns=physical_features, index=x_val.index)
-    x_test_scaled = pd.DataFrame(scaler.transform(x_test), columns=physical_features, index=x_test.index)
-
-    scaler_path = os.path.join(output_dir, "scaler.joblib")
-    dump(scaler, scaler_path)
-    logger.info(f"Saved feature scaler to {scaler_path}")
-
-    logger.info(f"Saving standardized matrices to {output_dir} ...")
-    pd.concat([x_train_scaled, y_train], axis=1).to_parquet(os.path.join(output_dir, "train.parquet"), engine="pyarrow", index=False)
-    pd.concat([x_val_scaled, y_val], axis=1).to_parquet(os.path.join(output_dir, "val.parquet"), engine="pyarrow", index=False)
-    pd.concat([x_test_scaled, y_test], axis=1).to_parquet(os.path.join(output_dir, "test.parquet"), engine="pyarrow", index=False)
-    write_run_manifest(output_dir, "clean_data_pipeline", paths.data_root)
-
-    logger.info("Data Pipeline Complete. ML Tensors generated successfully.")
+    logger.info("Loading and resampling controlled physics curves...")
+    frame = load_and_preprocess(
+        str(paths.hadronic_ready_dir),
+        str(paths.quark_ready_dir),
+    )
+    build_tensor_artifacts(
+        frame,
+        output_dir=paths.clean_tensor_dir,
+        data_root=paths.data_root,
+        component="clean_data_pipeline",
+        scaler_filename="scaler.joblib",
+    )
+    logger.info("Clean data pipeline completed successfully.")
 
 
 if __name__ == "__main__":

@@ -55,7 +55,7 @@ def run_mc_inference():
         ax1.set_title(f"XGBoost Topology (Perturbed {fset})\nExpected: {xgb_expected:.1%} [{xgb_lb:.1%} - {xgb_ub:.1%}]")
         ax1.grid(True, alpha=0.3)
         ax1.legend(loc="upper right")
-        fig.colorbar(scatter1, ax=ax1, label="Probability (Quark Star)")
+        fig.colorbar(scatter1, ax=ax1, label="Uncalibrated CFL4 model score")
 
         scatter2 = ax2.scatter(mass_samples, radius_samples, c=mlp_probs, cmap="coolwarm", alpha=0.6, edgecolors="none", s=10)
         ax2.errorbar(m_obs, r_obs, xerr=m_err, yerr=r_err, fmt="k+", markersize=15, capsize=3, linewidth=1.5, label="Mean Obs +/- 1 sigma")
@@ -64,7 +64,7 @@ def run_mc_inference():
         ax2.set_title(f"MLP Topology (Perturbed {fset})\nExpected: {mlp_expected:.1%} [{mlp_lb:.1%} - {mlp_ub:.1%}]")
         ax2.grid(True, alpha=0.3)
         ax2.legend(loc="upper right")
-        fig.colorbar(scatter2, ax=ax2, label="Probability (Quark Star)")
+        fig.colorbar(scatter2, ax=ax2, label="Uncalibrated CFL4 model score")
 
         plt.suptitle(f"Monte Carlo Observational Inference (N={n_samples})", fontsize=16)
         plt.tight_layout()

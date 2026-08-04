@@ -49,8 +49,8 @@ def run_mc_inference():
     mlp_lb = np.percentile(mlp_probs, 2.5)
     mlp_ub = np.percentile(mlp_probs, 97.5)
 
-    logger.info(f"[XGBoost] Expected Probability: {xgb_expected:.4f} [95% CI: {xgb_lb:.4f}, {xgb_ub:.4f}]")
-    logger.info(f"[MLP] Expected Probability: {mlp_expected:.4f} [95% CI: {mlp_lb:.4f}, {mlp_ub:.4f}]")
+    logger.info(f"[XGBoost] Expected score: {xgb_expected:.4f} [95% interval: {xgb_lb:.4f}, {xgb_ub:.4f}]")
+    logger.info(f"[MLP] Expected score: {mlp_expected:.4f} [95% interval: {mlp_lb:.4f}, {mlp_ub:.4f}]")
 
     output_dir = clean_plot_dir()
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
@@ -62,7 +62,7 @@ def run_mc_inference():
     ax1.set_title(f"XGBoost Topology\nExpected: {xgb_expected:.1%} [95% CI: {xgb_lb:.1%} - {xgb_ub:.1%}]")
     ax1.grid(True, alpha=0.3)
     ax1.legend(loc="upper right")
-    fig.colorbar(scatter1, ax=ax1, label="Probability (Quark Star)")
+    fig.colorbar(scatter1, ax=ax1, label="Uncalibrated CFL4 model score")
 
     scatter2 = ax2.scatter(mass_samples, radius_samples, c=mlp_probs, cmap="coolwarm", alpha=0.6, edgecolors="none", s=10)
     ax2.errorbar(m_obs, r_obs, xerr=m_err, yerr=r_err, fmt="k+", markersize=15, capsize=3, linewidth=1.5, label="Mean Obs +/- 1 sigma")
@@ -71,7 +71,7 @@ def run_mc_inference():
     ax2.set_title(f"MLP Topology\nExpected: {mlp_expected:.1%} [95% CI: {mlp_lb:.1%} - {mlp_ub:.1%}]")
     ax2.grid(True, alpha=0.3)
     ax2.legend(loc="upper right")
-    fig.colorbar(scatter2, ax=ax2, label="Probability (Quark Star)")
+    fig.colorbar(scatter2, ax=ax2, label="Uncalibrated CFL4 model score")
 
     plt.suptitle(f"Monte Carlo Observational Inference (N={n_samples})", fontsize=16)
     plt.tight_layout()

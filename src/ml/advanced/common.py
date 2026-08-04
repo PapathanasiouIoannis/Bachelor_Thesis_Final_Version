@@ -10,7 +10,7 @@ import torch
 import xgboost as xgb
 
 from src.ml.mlp_model import load_mlp_model
-from src.runtime import require_paths, runtime_paths
+from src.runtime import require_paths, require_test_diagnostics_authorized, runtime_paths
 
 
 FEATURES = ["Mass", "Radius", "log10_Lambda"]
@@ -28,6 +28,7 @@ def clean_plot_dir() -> Path:
 
 
 def load_clean_test():
+    require_test_diagnostics_authorized()
     paths = clean_runtime()
     test_path = paths.clean_tensor_dir / "test.parquet"
     require_paths([test_path], "Advanced clean evaluation")

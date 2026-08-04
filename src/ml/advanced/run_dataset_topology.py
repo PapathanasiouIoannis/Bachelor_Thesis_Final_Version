@@ -8,7 +8,7 @@ import seaborn as sns
 from scipy.ndimage import gaussian_filter
 
 from src.ml.advanced.common import FEATURES, clean_plot_dir, load_clean_scaler
-from src.runtime import require_paths, runtime_paths
+from src.runtime import require_paths, require_test_diagnostics_authorized, runtime_paths
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -16,6 +16,7 @@ logger = logging.getLogger("DATASET_TOPOLOGY")
 
 
 def run_dataset_topology():
+    require_test_diagnostics_authorized()
     logger.info("Initializing Dataset Topology & Envelope Analysis...")
     paths = runtime_paths()
     tensor_dir = paths.clean_tensor_dir

@@ -60,6 +60,24 @@ CONFIG = {
     "MIN_RADIUS_CUTOFF": 3.0,
     "ABSOLUTE_P_MAX_FALLBACK": 10**4.2,
 
+    # Controlled APR-1 / CFL4 comparison.  The Gaussian location and width are
+    # project-defined deformation coordinates; the CFL tuple is the published
+    # CFL4 benchmark of Vasquez Flores & Lugones (2017).
+    "CONTROLLED_HADRONIC_BASELINE": "APR-1",
+    "CONTROLLED_QUARK_B": 60.0,          # B [MeV/fm^3], not B^(1/4)
+    "CONTROLLED_QUARK_DELTA": 100.0,     # Delta [MeV]
+    "CONTROLLED_QUARK_MS": 150.0,        # m_s [MeV]
+    "CONTROLLED_PERTURB_EPS0": 220.0,    # epsilon_0 [MeV/fm^3]
+    "CONTROLLED_PERTURB_SIGMA": 50.0,    # sigma [MeV/fm^3]
+    # This common support is inside both causal intervals and, for the current
+    # TOV solver, keeps the conservative CFL4 sequence above 2.08 M_sun.
+    "CONTROLLED_A_MIN": -0.05,
+    "CONTROLLED_A_MAX": 0.09,
+    "CONTROLLED_A_POINTS": 15,
+    "CONTROLLED_R14_MIN": 9.5,
+    "CONTROLLED_R14_MAX": 14.5,
+    "CONTROLLED_GENERATION_SEED": 20260804,
+
     # ==========================================
     # 2. SOLVER SETTINGS
     # ==========================================
@@ -118,6 +136,7 @@ CONFIG = {
 
     "ML_ISO_FOREST_CONTAMINATION": 0.01,
     "ML_CV_SPLITS": 5,
+    "ML_HPO_GROUP_FOLDS": 3,
     "ML_RANDOM_SEED": 42,
     # NOTE: Actual trials are 50 (XGBoost) and 30 (MLP) — hardcoded in optimize scripts
     "ML_HPO_TRIALS": 150,
@@ -128,14 +147,19 @@ CONFIG = {
     "ML_MAX_ITER_ABLATION": 30,
     "ML_N_MC_SAMPLES_TRAIN_PIPELINE": 2,
     "ML_AUDIT_MASS_BINS": [1.1, 1.6, 2.1, 4.0],
+    # Every EoS contributes exactly these same observable mass locations to ML.
+    "ML_MASS_GRID_MIN": 1.0,
+    "ML_MASS_GRID_MAX": 2.0,
+    "ML_MASS_GRID_POINTS": 21,
 
     # ==========================================
     # 4. DATA SCHEMA
     # ==========================================
     "COLUMN_SCHEMA": [
-        "Mass", "Radius", "Lambda", "Label", "Curve_ID",
+        "Mass", "Radius", "Lambda", "Label", "Curve_ID", "Sweep_ID",
         "P_Central", "Eps_Central", "Eps_Surface", "CS2_Central",
-        "CS2_at_14", "Radius_14", "Slope14", "Slope16", "Slope18", "Slope20",
+        "CS2_at_14", "Radius_14", "M_Max", "Observationally_Viable",
+        "Slope14", "Slope16", "Slope18", "Slope20",
         "Bag_B", "Gap_Delta", "Mass_Strange", "Generation_Seed",
         "Perturb_A", "Perturb_eps0", "Perturb_sigma", "Baseline_Name"
     ],

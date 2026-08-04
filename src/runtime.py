@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,7 +14,216 @@ from typing import Any, Iterable
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-FIX_MANIFEST_VERSION = "runtime-readiness-physics-ml-integrity-v1"
+FIX_MANIFEST_VERSION = "controlled-eos-paired-sweep-ml-integrity-v3"
+
+
+def _source_tree_sha256() -> str:
+    """Fingerprint executable Python sources that define generated artifacts."""
+
+    candidates = list((PROJECT_ROOT / "src").rglob("*.py"))
+    candidates.extend((PROJECT_ROOT / "framework").rglob("*.py"))
+    candidates.extend(PROJECT_ROOT.glob("*.py"))
+    digest = hashlib.sha256()
+    for path in sorted(set(candidates), key=lambda item: item.as_posix()):
+        relative = path.relative_to(PROJECT_ROOT).as_posix().encode("utf-8")
+        digest.update(len(relative).to_bytes(4, "big"))
+        digest.update(relative)
+        contents = path.read_bytes()
+        digest.update(len(contents).to_bytes(8, "big"))
+        digest.update(contents)
+    return digest.hexdigest()
+
+
+def _config_sha256() -> str:
+    from src.config import CONFIG
+
+    payload = json.dumps(CONFIG, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _git_revision() -> str | None:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=PROJECT_ROOT,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _read_json_object(path: Path, context: str) -> dict[str, Any]:
+    if not path.exists():
+        raise FileNotFoundError(f"{context} missing required manifest: {path}")
+    with open(path, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError(f"{context} manifest is not a JSON object: {path}")
+    return payload
+
+
+def _tensor_lineage(tensor_dir: Path) -> dict[str, Any]:
+    manifest_path = tensor_dir / "run_manifest.json"
+    manifest = _read_json_object(manifest_path, "Tensor lineage")
+    required = (
+        "dataset_sha256",
+        "tensor_input_sha256",
+        "split_manifest_sha256",
+        "approved_features",
+        "preprocessing",
+    )
+    missing = [key for key in required if key not in manifest]
+    if missing:
+        raise ValueError(f"Tensor manifest {manifest_path} is missing {missing}.")
+
+    preprocessing = manifest["preprocessing"]
+    if not isinstance(preprocessing, dict):
+        raise ValueError(f"Tensor manifest {manifest_path} has invalid preprocessing metadata.")
+    preprocessing_required = ("scaler_filename", "hpo_training_filename")
+    preprocessing_missing = [
+        key for key in preprocessing_required if key not in preprocessing
+    ]
+    if preprocessing_missing:
+        raise ValueError(
+            f"Tensor manifest {manifest_path} preprocessing is missing "
+            f"{preprocessing_missing}."
+        )
+
+    dynamic_names = [
+        str(preprocessing["scaler_filename"]),
+        str(preprocessing["hpo_training_filename"]),
+    ]
+    if any(Path(name).name != name for name in dynamic_names):
+        raise ValueError(
+            f"Tensor manifest {manifest_path} contains a non-local artifact filename."
+        )
+    artifact_names = [
+        "run_manifest.json",
+        "train.parquet",
+        "val.parquet",
+        "test.parquet",
+        "row_audit.parquet",
+        "split_audit.parquet",
+        *dynamic_names,
+    ]
+    artifact_paths = [tensor_dir / name for name in artifact_names]
+    missing_artifacts = [str(path) for path in artifact_paths if not path.is_file()]
+    if missing_artifacts:
+        raise FileNotFoundError(
+            "Tensor lineage is missing required artifact(s): "
+            + ", ".join(missing_artifacts)
+        )
+
+    return {
+        **{key: manifest[key] for key in required},
+        "artifact_sha256": {
+            name: _file_sha256(tensor_dir / name) for name in artifact_names
+        },
+    }
+
+
+def artifact_lineage_path(artifact_path: str | os.PathLike) -> Path:
+    artifact = Path(artifact_path)
+    return artifact.with_name(f"{artifact.stem}.manifest.json")
+
+
+def tensor_lineage_metadata(tensor_dir: str | os.PathLike) -> dict[str, Any]:
+    """Expose the exact dataset/split/features identity for downstream manifests."""
+
+    return _tensor_lineage(Path(tensor_dir))
+
+
+def _selected_feature_lineage(
+    tensor_lineage: dict[str, Any],
+    selected_features: Iterable[str] | None,
+) -> list[str]:
+    approved = [str(feature) for feature in tensor_lineage["approved_features"]]
+    selected = (
+        approved
+        if selected_features is None
+        else [str(feature) for feature in selected_features]
+    )
+    if not selected or len(selected) != len(set(selected)):
+        raise ValueError("Artifact lineage requires a non-empty unique feature list.")
+    if any(feature not in approved for feature in selected):
+        raise ValueError(
+            f"Selected artifact features {selected} are not a subset of {approved}."
+        )
+    return selected
+
+
+def write_artifact_lineage(
+    artifact_path: str | os.PathLike,
+    tensor_dir: str | os.PathLike,
+    component: str,
+    selected_features: Iterable[str] | None = None,
+) -> Path:
+    """Bind an HPO artifact to exact tensors, config, code, and file contents."""
+
+    artifact = Path(artifact_path)
+    if not artifact.exists():
+        raise FileNotFoundError(f"Cannot fingerprint missing artifact: {artifact}")
+    tensor_lineage = _tensor_lineage(Path(tensor_dir))
+    payload = {
+        "component": component,
+        "artifact_path": str(artifact.resolve()),
+        "artifact_sha256": _file_sha256(artifact),
+        "tensor_lineage": tensor_lineage,
+        "selected_features": _selected_feature_lineage(
+            tensor_lineage, selected_features
+        ),
+        "source_tree_sha256": _source_tree_sha256(),
+        "config_sha256": _config_sha256(),
+        "created_utc": datetime.now(timezone.utc).isoformat(),
+    }
+    lineage_path = artifact_lineage_path(artifact)
+    with open(lineage_path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+    return lineage_path
+
+
+def require_artifact_lineage(
+    artifact_path: str | os.PathLike,
+    tensor_dir: str | os.PathLike,
+    context: str,
+    *,
+    component: str | None = None,
+    selected_features: Iterable[str] | None = None,
+) -> None:
+    """Fail closed if an HPO artifact is stale, edited, or from other tensors."""
+
+    artifact = Path(artifact_path)
+    if not artifact.exists():
+        raise FileNotFoundError(f"{context} missing required artifact: {artifact}")
+    lineage_path = artifact_lineage_path(artifact)
+    lineage = _read_json_object(lineage_path, context)
+    tensor_lineage = _tensor_lineage(Path(tensor_dir))
+    expected = {
+        "artifact_sha256": _file_sha256(artifact),
+        "tensor_lineage": tensor_lineage,
+        "selected_features": _selected_feature_lineage(
+            tensor_lineage, selected_features
+        ),
+        "source_tree_sha256": _source_tree_sha256(),
+        "config_sha256": _config_sha256(),
+    }
+    if component is not None:
+        expected["component"] = component
+    mismatches = [key for key, value in expected.items() if lineage.get(key) != value]
+    if mismatches:
+        raise RuntimeError(
+            f"{context} refused stale or incompatible artifact {artifact}; "
+            f"lineage mismatch in {mismatches}. Re-run HPO."
+        )
 
 
 def _as_project_path(path: str | os.PathLike | None) -> Path | None:
@@ -150,6 +361,17 @@ def fast_enabled() -> bool:
     return os.environ.get("THESIS_FAST", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def require_test_diagnostics_authorized() -> None:
+    """Prevent exploratory utilities from repeatedly consuming held-out labels."""
+
+    allowed = os.environ.get("THESIS_ALLOW_TEST_DIAGNOSTICS", "").strip().lower()
+    if allowed not in {"1", "true", "yes", "on"}:
+        raise RuntimeError(
+            "Held-out test diagnostics are locked. Run them only through the master "
+            "pipeline with --run-test-diagnostics for a declared final analysis."
+        )
+
+
 def optuna_trials(default: int) -> int:
     if fast_enabled():
         return env_int("THESIS_OPTUNA_TRIALS", min(default, 2))
@@ -196,6 +418,9 @@ def write_run_manifest(
         "component": component,
         "data_root": str(resolve_data_root(data_root)),
         "fix_manifest_version": FIX_MANIFEST_VERSION,
+        "source_tree_sha256": _source_tree_sha256(),
+        "config_sha256": _config_sha256(),
+        "git_revision": _git_revision(),
         "created_utc": datetime.now(timezone.utc).isoformat(),
     }
     if metadata:

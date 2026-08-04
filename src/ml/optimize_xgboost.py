@@ -1,21 +1,25 @@
 import argparse
 import json
 import logging
-import os
-
 import numpy as np
 import optuna
 import optuna.visualization as vis
-import pandas as pd
 import xgboost as xgb
 from sklearn.metrics import auc, precision_recall_curve
 
+from src.config import CONFIG
+from src.ml.hpo_groups import (
+    grouped_cv_indices,
+    load_training_groups,
+    scale_inner_fold,
+)
 from src.runtime import (
     add_runtime_args,
     configure_runtime_from_args,
+    fast_enabled,
     optuna_trials,
-    require_paths,
     runtime_paths,
+    write_artifact_lineage,
     write_run_manifest,
     xgb_device_params,
 )
@@ -28,22 +32,20 @@ logger = logging.getLogger("OPT_XGBOOST")
 def load_data(data_root=None):
     paths = runtime_paths(data_root)
     tensor_dir = paths.clean_tensor_dir
-    require_paths([tensor_dir / "train.parquet", tensor_dir / "val.parquet"], "XGBoost optimization")
-    logger.info(f"Loading tensors from {tensor_dir}...")
+    logger.info(f"Loading training-only tensors and groups from {tensor_dir}...")
+    return load_training_groups(
+        tensor_dir,
+        ["Mass", "Radius", "log10_Lambda"],
+        "XGBoost grouped optimization",
+    )
 
-    train_df = pd.read_parquet(tensor_dir / "train.parquet", engine="pyarrow")
-    val_df = pd.read_parquet(tensor_dir / "val.parquet", engine="pyarrow")
 
-    return train_df.drop(columns=["Label"]), train_df["Label"], val_df.drop(columns=["Label"]), val_df["Label"]
-
-
-def objective(trial, X_train, y_train, X_val, y_val, scale_pos_weight, xgb_device):
+def objective(trial, X_train, y_train, groups, xgb_device):
     param = {
         "verbosity": 0,
         "objective": "binary:logistic",
         "eval_metric": "aucpr",
-        "scale_pos_weight": scale_pos_weight,
-        "random_state": 42,
+        "random_state": CONFIG["ML_RANDOM_SEED"],
         "n_estimators": 1000,
         "tree_method": "hist",
         "max_depth": trial.suggest_int("max_depth", 3, 10),
@@ -53,27 +55,54 @@ def objective(trial, X_train, y_train, X_val, y_val, scale_pos_weight, xgb_devic
     }
     param.update(xgb_device)
 
-    model = xgb.XGBClassifier(**param, use_label_encoder=False, early_stopping_rounds=50, n_jobs=-1)
-    model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
-
-    y_pred_proba = model.predict_proba(X_val)[:, 1]
-    precision, recall, _ = precision_recall_curve(y_val, y_pred_proba)
-    return auc(recall, precision)
+    scores = []
+    for fold_index, (fit_idx, score_idx) in enumerate(
+        grouped_cv_indices(groups, y_train)
+    ):
+        X_fit, X_score = scale_inner_fold(X_train, fit_idx, score_idx)
+        y_fit = y_train.iloc[fit_idx]
+        quark_count = int((y_fit == 1).sum())
+        scale_pos_weight = int((y_fit == 0).sum()) / quark_count if quark_count else 1.0
+        model = xgb.XGBClassifier(
+            **param,
+            scale_pos_weight=scale_pos_weight,
+            use_label_encoder=False,
+            early_stopping_rounds=50,
+            n_jobs=-1,
+        )
+        model.fit(
+            X_fit,
+            y_fit,
+            eval_set=[(X_score, y_train.iloc[score_idx])],
+            verbose=False,
+        )
+        probabilities = model.predict_proba(X_score)[:, 1]
+        precision, recall, _ = precision_recall_curve(
+            y_train.iloc[score_idx], probabilities
+        )
+        scores.append(auc(recall, precision))
+        trial.report(float(np.mean(scores)), fold_index)
+        if trial.should_prune():
+            raise optuna.exceptions.TrialPruned()
+    return float(np.mean(scores))
 
 
 def run_optimization(data_root=None, use_cuda_xgb=False):
     paths = runtime_paths(data_root)
-    X_train, y_train, X_val, y_val = load_data(paths.data_root)
-
-    count_hadronic = np.sum(y_train == 0)
-    count_quark = np.sum(y_train == 1)
-    scale_pos_weight = count_hadronic / count_quark if count_quark > 0 else 1.0
+    features = ["Mass", "Radius", "log10_Lambda"]
+    X_train, y_train, groups = load_data(paths.data_root)
     xgb_device = xgb_device_params(use_cuda_xgb)
 
-    logger.info("Initializing Optuna Study for XGBoost PR-AUC maximization...")
-    study = optuna.create_study(direction="maximize")
+    logger.info("Initializing grouped inner-CV Optuna study (validation/test remain locked)...")
+    study = optuna.create_study(
+        direction="maximize",
+        sampler=optuna.samplers.TPESampler(seed=CONFIG["ML_RANDOM_SEED"]),
+    )
     trials = optuna_trials(50)
-    study.optimize(lambda trial: objective(trial, X_train, y_train, X_val, y_val, scale_pos_weight, xgb_device), n_trials=trials)
+    study.optimize(
+        lambda trial: objective(trial, X_train, y_train, groups, xgb_device),
+        n_trials=trials,
+    )
 
     logger.info(f"Best Trial PR-AUC: {study.best_value:.4f}")
     logger.info(f"Best Params: {study.best_params}")
@@ -82,8 +111,26 @@ def run_optimization(data_root=None, use_cuda_xgb=False):
     out_path = paths.outputs_root / "xgboost_best_params.json"
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(study.best_params, f, indent=4)
-    write_run_manifest(paths.outputs_root, "clean_xgboost_optimization", paths.data_root)
+    write_artifact_lineage(
+        out_path,
+        paths.clean_tensor_dir,
+        "clean_xgboost_hpo_parameters",
+        features,
+    )
+    write_run_manifest(
+        paths.outputs_root,
+        "clean_xgboost_optimization",
+        paths.data_root,
+        {
+            "hpo_scope": "training-only grouped inner cross-validation",
+            "selected_features": features,
+        },
+    )
     logger.info(f"Saved optimized hyperparameters to {out_path}")
+
+    if fast_enabled():
+        logger.info("Fast mode enabled; skipping Optuna visualization export.")
+        return
 
     plots_dir = paths.plots_root / "ml_optimization"
     plots_dir.mkdir(parents=True, exist_ok=True)

@@ -48,7 +48,7 @@ def eval_uncertainty():
         plt.figure(figsize=(10, 6))
         scatter = plt.scatter(compactness, variance_preds, c=mean_preds, cmap="coolwarm", alpha=0.8, edgecolor="k")
         cbar = plt.colorbar(scatter)
-        cbar.set_label("Mean Predicted Probability (0=Hadronic, 1=Quark)")
+        cbar.set_label("Mean uncalibrated score (0=APR-1, 1=CFL4)")
         plt.title(f"Epistemic Uncertainty vs Compactness (Perturbed {fset})", fontsize=15)
         plt.xlabel("Compactness (C = M/R)", fontsize=12)
         plt.ylabel("Predictive Variance (Epistemic Uncertainty)", fontsize=12)

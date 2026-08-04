@@ -1,10 +1,33 @@
-# EoS Baseline Library and SymPy Optimization
+# Repository-local EoS surrogate library
 
-The `src/physics/get_eos_library.py` script serves as the repository for all the analytical nuclear physics models used to anchor the hadronic core generator.
+`src/physics/get_eos_library.py` compiles a local collection of analytic
+energy-density functions \(\epsilon(P)\) and their derivatives. SymPy derives
+\(d\epsilon/dP\), and `lambdify` caches NumPy callables once per process.
 
-The baseline parameterizations are heavily sourced from the seminal work of Read et al. (2009), who successfully fit dozens of realistic nuclear EoS models (such as SLy, APR4, and various MDI configurations) into continuous analytical expressions. The script also includes the full multi-layer Douchin & Haensel parameterization for the outer crust.
+## Provenance boundary
 
-### The Lambdify Bottleneck Fix
-Initially, these algebraic fits were evaluated purely using SymPy to guarantee symbolic mathematical accuracy. However, this caused an immense computational bottleneck. When generating 100,000 equations of state across dozens of parallel CPU workers, constantly recompiling symbolic math trees slowed the pipeline to a crawl.
+The exact two-power and exponential coefficients in this file have not been
+verified against a primary publication. They are not the piecewise-polytrope
+coefficients published by [Read et al. (2009)](https://arxiv.org/abs/0812.2163).
+The local four-part crust formula also has not been established as the published
+analytic SLy representation of
+[Haensel and Potekhin (2004)](https://arxiv.org/abs/astro-ph/0408324).
 
-To fix this, I refactored the library to use a lazy-loaded global caching system. The script now uses SymPy's `lambdify` function to compile the symbolic expressions down into highly optimized, C-level NumPy functions. This compilation happens exactly once per process. Subsequent calls instantly retrieve the cached NumPy functions, speeding up the data generation phase by over two orders of magnitude while preserving exact mathematical precision.
+The controlled experiment therefore calls the selected model the **repository
+APR-1 surrogate**. It must not be identified with Read `APR1` or the CompOSE
+`APR` table. The naming distinctions and primary sources are documented in
+[`docs/CONTROLLED_EOS_SWEEP.md`](../CONTROLLED_EOS_SWEEP.md).
+
+## Controlled use
+
+Production generation selects only the `APR-1` entry. The framework applies the
+declared density shift at \(P_t=0.184\;\mathrm{MeV\,fm^{-3}}\), evaluates the
+baseline sound speed
+
+\[
+c_s^2(P)=\left(\frac{d\epsilon}{dP}\right)^{-1},
+\]
+
+and passes it to the shared Gaussian deformation and pressure-reconstruction
+path in `framework/eos_sweep.py`. The remaining entries stay available for
+legacy diagnostics; they are not sampled by the controlled generator.

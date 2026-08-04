@@ -7,11 +7,12 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from sklearn.metrics import auc, classification_report, precision_recall_curve
 from torch.utils.data import DataLoader, TensorDataset
 
+from src.config import CONFIG
+from src.ml.metrics import binary_metrics, select_macro_f1_threshold
 from src.ml.mlp_model import build_mlp, load_mlp_params
-from src.runtime import add_runtime_args, configure_runtime_from_args, require_paths, runtime_paths, train_epochs, write_run_manifest
+from src.runtime import add_runtime_args, configure_runtime_from_args, require_artifact_lineage, require_paths, runtime_paths, tensor_lineage_metadata, train_epochs, write_run_manifest
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -43,6 +44,10 @@ def load_data(feature_set="MR", data_root=None):
 
 def train_and_evaluate(feature_set, data_root=None):
     paths = runtime_paths(data_root)
+    feature_offset = 0 if feature_set == "MR" else 1
+    torch.manual_seed(CONFIG["ML_RANDOM_SEED"] + feature_offset)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(CONFIG["ML_RANDOM_SEED"] + feature_offset)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"[{feature_set}] Using device: {device}")
 
@@ -50,6 +55,13 @@ def train_and_evaluate(feature_set, data_root=None):
 
     param_path = paths.outputs_perturb_root / f"mlp_{feature_set}_best_params.json"
     require_paths([param_path], f"Perturbed MLP final training {feature_set}")
+    require_artifact_lineage(
+        param_path,
+        paths.perturb_tensor_dir,
+        f"Perturbed MLP final training {feature_set}",
+        component=f"perturbed_mlp_{feature_set}_hpo_parameters",
+        selected_features=features_for(feature_set),
+    )
     best_params = load_mlp_params(param_path)
     logger.info(f"Loaded {feature_set} optimized params: {best_params}")
 
@@ -107,24 +119,36 @@ def train_and_evaluate(feature_set, data_root=None):
 
     logger.info(f"Evaluating Final MLP [{feature_set}] on Test Set...")
     model.eval()
+    validation_probabilities = []
+    with torch.no_grad():
+        for x_batch, _ in val_loader:
+            validation_probabilities.extend(
+                torch.sigmoid(model(x_batch.to(device))).cpu().numpy()
+            )
+    threshold = select_macro_f1_threshold(y_val, validation_probabilities)
     X_test_tensor = torch.FloatTensor(X_test.copy()).to(device)
     with torch.no_grad():
         probs = torch.sigmoid(model(X_test_tensor)).cpu().numpy().squeeze()
 
-    y_pred = (probs > 0.5).astype(int)
-    precision, recall, _ = precision_recall_curve(y_test, probs)
-    pr_auc = auc(recall, precision)
-    rep = classification_report(y_test, y_pred, target_names=["Hadronic", "Quark"], output_dict=True)
-    metrics = {"PR-AUC": float(pr_auc), "F1-Score": float(rep["macro avg"]["f1-score"])}
+    metrics = binary_metrics(y_test, probs, threshold)
 
     with open(out_dir / "metrics.json", "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=4)
     np.save(out_dir / "test_probs.npy", probs)
     np.save(out_dir / "test_labels.npy", y_test)
-    write_run_manifest(out_dir, f"perturbed_mlp_{feature_set}_final", paths.data_root)
+    write_run_manifest(
+        out_dir,
+        f"perturbed_mlp_{feature_set}_final",
+        paths.data_root,
+        {
+            "decision_threshold_selected_on_validation": threshold,
+            "selected_features": features_for(feature_set),
+            "tensor_lineage": tensor_lineage_metadata(paths.perturb_tensor_dir),
+        },
+    )
 
     logger.info(f"[{feature_set}] Metrics saved to {out_dir}")
-    logger.info(f"[{feature_set}] PR-AUC: {pr_auc:.4f}")
+    logger.info("[%s] Test metrics: %s", feature_set, metrics)
 
 
 if __name__ == "__main__":

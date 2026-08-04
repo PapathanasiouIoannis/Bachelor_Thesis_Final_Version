@@ -277,7 +277,7 @@ if run_btn:
 
         st.markdown("### 📊 Inference Telemetry")
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Expected Quark Probability", f"{expected_prob:.2%}")
+        m1.metric("Expected Quark-model score", f"{expected_prob:.2%}")
         m2.metric("Lower Bound (95% CI)", f"{lower_bound:.2%}")
         m3.metric("Upper Bound (95% CI)", f"{upper_bound:.2%}")
         m4.metric("Inference Reliability", rel_status, f"{ci_spread:.1%} variance", delta_color="inverse")
@@ -419,7 +419,7 @@ if run_btn:
         # 7. AI Explainability (SHAP Waterfall)
         # -----------------------------------------
         with st.expander("🧠 AI Decision Explainability (SHAP)"):
-            st.markdown("This module uses the core **XGBoost AI** to mathematically break down exactly how your Mean Observation influenced the final Probability prediction. *(Note: SHAP values are calculated in log-odds margin space. A final positive `f(x)` strongly predicts a Quark Star).*")
+            st.markdown("This module uses the core **XGBoost AI** to show how the mean observation influenced its uncalibrated model score. *(SHAP values are calculated in log-odds margin space. A positive `f(x)` favors the fixed-CFL4 benchmark over the APR-1 surrogate within this experiment).*")
 
             if feature_set == "MRL":
                 mean_obs_df = pd.DataFrame({

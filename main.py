@@ -31,6 +31,14 @@ def main():
     parser.add_argument("--fast", action="store_true", help="run readiness-sized training/evaluation defaults")
     parser.add_argument("--skip-hpo", action="store_true", help="reuse existing best params instead of running HPO")
     parser.add_argument("--use-cuda-xgb", action="store_true", help="request CUDA-backed XGBoost")
+    parser.add_argument(
+        "--run-test-diagnostics",
+        action="store_true",
+        help=(
+            "explicitly unlock repeated advanced diagnostics on held-out test labels; "
+            "omit during model development"
+        ),
+    )
     args = parser.parse_args()
     if args.smoke_test:
         args.fast = True
@@ -58,6 +66,12 @@ def main():
         [
             ("Run Final XGBoost", os.path.join("src", "ml", "run_xgboost.py")),
             ("Run Final MLP", os.path.join("src", "ml", "run_mlp.py")),
+        ]
+    )
+    if args.run_test_diagnostics:
+        os.environ["THESIS_ALLOW_TEST_DIAGNOSTICS"] = "1"
+        phases.extend(
+            [
             ("Advanced Eval: ROC", os.path.join("src", "ml", "advanced", "run_roc.py")),
             ("Advanced Eval: Calibration", os.path.join("src", "ml", "advanced", "run_calibration.py")),
             ("Advanced Eval: UMAP Topology", os.path.join("src", "ml", "advanced", "run_umap.py")),
@@ -69,8 +83,13 @@ def main():
             ("Advanced Eval: Noise Degradation", os.path.join("src", "ml", "advanced", "run_noise_degradation.py")),
             ("Advanced Eval: Raw Curves", os.path.join("src", "ml", "advanced", "run_plot_all_curves.py")),
             ("Final Stage: Tables Generation", os.path.join("src", "visualize", "generate_tables.py")),
-        ]
-    )
+            ]
+        )
+    else:
+        print(
+            "Held-out test diagnostics are locked. Pass --run-test-diagnostics only "
+            "for a declared final analysis run."
+        )
 
     for name, script_path in phases:
         run_phase(name, script_path)

@@ -5,13 +5,15 @@ import logging
 import numpy as np
 import pandas as pd
 import xgboost as xgb
-from sklearn.metrics import auc, classification_report, precision_recall_curve
 
+from src.ml.metrics import binary_metrics, select_macro_f1_threshold
 from src.runtime import (
     add_runtime_args,
     configure_runtime_from_args,
+    require_artifact_lineage,
     require_paths,
     runtime_paths,
+    tensor_lineage_metadata,
     write_run_manifest,
     xgb_device_params,
 )
@@ -50,6 +52,13 @@ def train_and_evaluate(feature_set, data_root=None, use_cuda_xgb=False):
 
     param_path = paths.outputs_perturb_root / f"xgboost_{feature_set}_best_params.json"
     require_paths([param_path], f"Perturbed XGBoost final training {feature_set}")
+    require_artifact_lineage(
+        param_path,
+        paths.perturb_tensor_dir,
+        f"Perturbed XGBoost final training {feature_set}",
+        component=f"perturbed_xgboost_{feature_set}_hpo_parameters",
+        selected_features=features_for(feature_set),
+    )
     with open(param_path, "r", encoding="utf-8") as f:
         best_params = json.load(f)
     logger.info(f"Loaded {feature_set} optimized params: {best_params}")
@@ -82,21 +91,28 @@ def train_and_evaluate(feature_set, data_root=None, use_cuda_xgb=False):
     model.save_model(out_dir / "xgboost_weights.json")
 
     logger.info(f"Evaluating XGBoost Final Model [{feature_set}] on Test Set...")
-    y_pred = model.predict(X_test)
+    validation_probabilities = model.predict_proba(X_val)[:, 1]
+    threshold = select_macro_f1_threshold(y_val, validation_probabilities)
     y_pred_proba = model.predict_proba(X_test)[:, 1]
-    precision, recall, _ = precision_recall_curve(y_test, y_pred_proba)
-    pr_auc = auc(recall, precision)
-    rep = classification_report(y_test, y_pred, target_names=["Hadronic", "Quark"], output_dict=True)
-    metrics = {"PR-AUC": float(pr_auc), "F1-Score": float(rep["macro avg"]["f1-score"])}
+    metrics = binary_metrics(y_test, y_pred_proba, threshold)
 
     with open(out_dir / "metrics.json", "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=4)
     np.save(out_dir / "test_probs.npy", y_pred_proba)
     np.save(out_dir / "test_labels.npy", y_test.values)
-    write_run_manifest(out_dir, f"perturbed_xgboost_{feature_set}_final", paths.data_root)
+    write_run_manifest(
+        out_dir,
+        f"perturbed_xgboost_{feature_set}_final",
+        paths.data_root,
+        {
+            "decision_threshold_selected_on_validation": threshold,
+            "selected_features": features_for(feature_set),
+            "tensor_lineage": tensor_lineage_metadata(paths.perturb_tensor_dir),
+        },
+    )
 
     logger.info(f"[{feature_set}] Metrics saved to {out_dir}")
-    logger.info(f"[{feature_set}] PR-AUC: {pr_auc:.4f}")
+    logger.info("[%s] Test metrics: %s", feature_set, metrics)
 
 
 if __name__ == "__main__":

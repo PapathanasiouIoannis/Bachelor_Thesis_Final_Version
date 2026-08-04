@@ -45,8 +45,14 @@ def print_final_summary():
             xgb_metrics = json.load(f)
         with open(mlp_metrics_path, "r", encoding="utf-8") as f:
             mlp_metrics = json.load(f)
-        print(f"  XGBoost PR-AUC: {xgb_metrics.get('PR-AUC', 0):.4f}")
-        print(f"  MLP PR-AUC:     {mlp_metrics.get('PR-AUC', 0):.4f}")
+        print(
+            "  XGBoost PR-AUC: "
+            f"{xgb_metrics.get('PR-AUC-Trapezoidal', 0):.4f}"
+        )
+        print(
+            "  MLP PR-AUC:     "
+            f"{mlp_metrics.get('PR-AUC-Trapezoidal', 0):.4f}"
+        )
 
     print("-" * 63)
     print("\n[ Generated Visualizations & Artifacts ]")
@@ -65,6 +71,11 @@ def main():
     parser.add_argument("--fast", action="store_true", help="run readiness-sized training/evaluation defaults")
     parser.add_argument("--skip-hpo", action="store_true", help="reuse existing best params instead of running HPO")
     parser.add_argument("--use-cuda-xgb", action="store_true", help="request CUDA-backed XGBoost")
+    parser.add_argument(
+        "--run-test-diagnostics",
+        action="store_true",
+        help="unlock repeated held-out-test diagnostics for a declared final run",
+    )
     args = parser.parse_args()
     if args.smoke_test:
         args.fast = True
@@ -93,6 +104,12 @@ def main():
         [
             ("Run Final XGBoost (MR & MRL)", os.path.join("src", "ml_perturb", "run_xgboost.py")),
             ("Run Final MLP (MR & MRL)", os.path.join("src", "ml_perturb", "run_mlp.py")),
+        ]
+    )
+    if args.run_test_diagnostics:
+        os.environ["THESIS_ALLOW_TEST_DIAGNOSTICS"] = "1"
+        phases.extend(
+            [
             ("Advanced Eval: Calibration", os.path.join("src", "ml_perturb", "advanced", "run_calibration.py")),
             ("Advanced Eval: UMAP Topology", os.path.join("src", "ml_perturb", "advanced", "run_umap.py")),
             ("Advanced Eval: Uncertainty", os.path.join("src", "ml_perturb", "advanced", "eval_uncertainty.py")),
@@ -100,8 +117,13 @@ def main():
             ("Advanced Eval: Confusion Matrix", os.path.join("src", "ml_perturb", "advanced", "run_confusion_matrix.py")),
             ("Advanced Eval: Feature Importance", os.path.join("src", "ml_perturb", "advanced", "run_feature_importance.py")),
             ("Advanced Eval: Perturbation Effects", os.path.join("src", "visualize", "plot_perturbation_effect.py")),
-        ]
-    )
+            ]
+        )
+    else:
+        print(
+            "Held-out test diagnostics are locked. Pass --run-test-diagnostics only "
+            "for a declared final analysis run."
+        )
 
     for name, script_path in phases:
         if name == "Perturbed Leakage Audit":

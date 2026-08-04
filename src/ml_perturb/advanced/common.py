@@ -10,7 +10,7 @@ import torch
 import xgboost as xgb
 
 from src.ml.mlp_model import load_mlp_model
-from src.runtime import require_paths, runtime_paths
+from src.runtime import require_paths, require_test_diagnostics_authorized, runtime_paths
 
 
 FEATURE_SETS = {"MR": ["Mass", "Radius"], "MRL": ["Mass", "Radius", "log10_Lambda"]}
@@ -28,6 +28,7 @@ def perturb_plot_dir() -> Path:
 
 
 def load_perturb_test(feature_set: str):
+    require_test_diagnostics_authorized()
     paths = perturb_runtime()
     test_path = paths.perturb_tensor_dir / "test.parquet"
     require_paths([test_path], f"Perturbed advanced evaluation {feature_set}")

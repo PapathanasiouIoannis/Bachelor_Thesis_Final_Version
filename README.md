@@ -1,69 +1,84 @@
-# Neutron Star Equation of State (EoS) Inference Framework
+# Controlled compact-star EoS comparison
 
-![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)
-![License](https://img.shields.io/badge/license-MIT-blue)
+This thesis code solves the TOV and tidal equations for a controlled pair of
+equation-of-state models and studies whether their observable curves can be
+distinguished by XGBoost and PyTorch MLP classifiers.
 
-## Hi there! Welcome to my Bachelor Thesis project!
-This repository contains the full code for my thesis project on Neutron Star Equation of State (EoS) Inference. 
+The current experiment is deliberately narrow:
 
-The goal of this project is to figure out what happens inside the extremely dense core of a neutron star. Specifically, we want to know if the core is made of standard "Hadronic" matter (protons, neutrons, etc.) or if it breaks down into exotic "Quark" matter. Since we can't look inside a neutron star, we use a combination of theoretical physics and machine learning to make predictions based on what telescopes *can* see from the outside.
+- hadronic class: the repository's analytic `APR-1` surrogate only;
+- quark class: the published CFL4 benchmark with
+  \(B=60\;\mathrm{MeV/fm^3}\), \(\Delta=100\;\mathrm{MeV}\), and
+  \(m_s=150\;\mathrm{MeV}\);
+- both classes: the same Gaussian sound-speed deformation with
+  \(\epsilon_0=220\;\mathrm{MeV/fm^3}\),
+  \(\sigma=50\;\mathrm{MeV/fm^3}\), and a deterministic sweep over \(A\).
 
-## How it works
-The project operates in a few major steps:
-1. **Physics Generation**: We simulate thousands of possible neutron stars by solving the Tolman-Oppenheimer-Volkoff (TOV) equations. We use different theoretical models (Hadronic vs. Quark) to see what kinds of masses, radii, and tidal deformabilities they would produce.
-2. **Clean Machine Learning**: We train machine learning models (XGBoost and PyTorch MLPs) on this perfect theoretical data to see if we can classify the core state just by looking at Mass ($M$), Radius ($R$), and Tidal Deformability ($\Lambda$).
-3. **The "Masquerade" Problem (Perturbed ML)**: Real telescopes like NICER and LIGO have massive error margins (noise). We inject realistic Gaussian noise into our physics data to simulate real-world observations and retrain our models. This proves that adding Gravitational Wave data ($\Lambda$) is crucial for breaking the "masquerade" where Quark stars look identical to Hadronic stars.
+This supports an **APR-1-surrogate versus fixed-CFL4 model-pair comparison**.
+It does not, by itself, identify a general hadronic-versus-quark signature.
+See [the controlled sweep rationale](docs/CONTROLLED_EOS_SWEEP.md) and
+[the classification risk audit](docs/CLASSIFICATION_RISK_AUDIT.md).
 
 ## Setup
-It's highly recommended to use a virtual environment so you don't mess up your system Python packages.
 
 ```bash
-# 1. Create the virtual environment
 python -m venv .venv
-
-# 2. Activate it
-# On Windows:
+# Windows
 .venv\Scripts\activate
-# On MacOS/Linux:
+# macOS/Linux
 source .venv/bin/activate
-
-# 3. Install the packages
 pip install -r requirements.txt
 ```
 
-## How to run the code
-The pipeline is split into three main "orchestrators" so you don't have to run everything manually.
+## Run
 
-### 1. Physics Generation
-Run this to generate the raw Equations of State and solve the TOV equations. It outputs the data into Parquet files.
+Generate the default 15 paired amplitudes (30 EoS curves):
+
 ```bash
-python physics_main.py
+python physics_main.py --force-regenerate
 ```
 
-### 2. Clean Machine Learning Pipeline
-This trains the XGBoost and Neural Network models on the clean, theoretical data. It also generates all the performance plots and visualizations.
+For a quick readiness run in a separate profile:
+
+```bash
+python physics_main.py --smoke-test --force-regenerate --data-root data/smoke
+```
+
+Build and audit clean tensors, optimize on training groups only, and perform the
+single final model evaluation:
+
 ```bash
 python main.py
 ```
 
-### 3. Perturbed (Noisy) Machine Learning Pipeline
-This injects realistic telescope noise into the data and trains specialized models to handle the uncertainty.
+Advanced utilities that repeatedly inspect held-out test labels are locked by
+default. Unlock them only for a declared final analysis:
+
+```bash
+python main.py --skip-hpo --run-test-diagnostics
+```
+
+Run the noisy-data experiment after the clean split manifest exists:
+
 ```bash
 python perturb_main.py
 ```
 
-## Interactive Dashboards
-I built two interactive Streamlit dashboards so you can play around with the models and see how they predict the core state based on custom telescope measurements.
+More options and artifact details are in
+[the execution guide](docs/EXECUTION_GUIDE.md).
 
-To run the Clean Dashboard:
-```bash
-streamlit run app_ref.py
-```
+## Data-integrity controls
 
-To run the Noisy/Perturbed Dashboard (which is much more realistic):
-```bash
-streamlit run perturb_app_ref.py
-```
+- paired hadronic/quark curves share a `Sweep_ID` and never cross splits;
+- train, validation, and test use contiguous blocks of \(A\);
+- every curve is interpolated onto the same 21-point mass grid;
+- clean and noisy variants reuse identical latent rows and split assignments;
+- outer scalers are fitted on training rows only, while HPO fits a fresh scaler
+  inside each inner-fit fold;
+- microphysics and provenance columns are excluded from model features;
+- hyperparameter search uses class-valid grouped inner cross-validation on
+  training groups;
+- validation labels choose decision thresholds; test labels do not.
 
-## Note on "Compactness"
-In earlier iterations of this project, we used Compactness ($C = M/R$) as a feature. We eventually realized this causes massive data leakage and gives the models an unfair advantage. We have completely stripped $C$ out of the final pipelines to ensure our results are fully grounded in realistic macroscopic observables!
+Unresolved scientific limitations, including baseline confounding and the need
+for an external-baseline test, are recorded in the risk audit.
