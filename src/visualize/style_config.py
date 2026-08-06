@@ -39,6 +39,7 @@ def set_paper_style() -> None:
     import warnings
 
     logging.getLogger("matplotlib.backends.backend_pdf").setLevel(logging.ERROR)
+    logging.getLogger("fontTools").setLevel(logging.ERROR)
     warnings.filterwarnings("ignore", message=".*timestamp seems very low.*")
 
     plt.rcParams.update(

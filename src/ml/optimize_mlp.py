@@ -1,160 +1,192 @@
-import os
+import argparse
+import ast
 import json
-import pandas as pd
+import logging
+
 import numpy as np
+import optuna
+import optuna.visualization as vis
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from sklearn.metrics import auc, precision_recall_curve
 from torch.utils.data import DataLoader, TensorDataset
-from sklearn.preprocessing import StandardScaler
-import optuna
-import logging
-from sklearn.metrics import precision_recall_curve, auc
-import optuna.visualization as vis
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+from src.config import CONFIG
+from src.ml.hpo_groups import (
+    grouped_cv_indices,
+    load_training_groups,
+    scale_inner_fold,
+)
+from src.ml.mlp_model import DynamicMLP
+from src.runtime import (
+    add_runtime_args,
+    configure_runtime_from_args,
+    fast_enabled,
+    optuna_trials,
+    runtime_paths,
+    train_epochs,
+    write_artifact_lineage,
+    write_run_manifest,
+)
+
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("OPT_MLP")
 
-class DynamicMLP(nn.Module):
-    def __init__(self, input_dim, hidden_sizes, dropout_rate):
-        super(DynamicMLP, self).__init__()
-        layers = []
-        in_dim = input_dim
-        for size in hidden_sizes:
-            layers.append(nn.Linear(in_dim, size))
-            layers.append(nn.LeakyReLU(0.1))
-            layers.append(nn.Dropout(dropout_rate))
-            in_dim = size
-            
-        layers.append(nn.Linear(in_dim, 1))
-        # Removed Sigmoid here because we will use BCEWithLogitsLoss which is numerically safer
-        
-        self.net = nn.Sequential(*layers)
-        
-    def forward(self, x):
-        return self.net(x)
 
-def load_and_preprocess_data():
-    TENSOR_DIR = os.path.join("data", "ml_tensors")
-    logger.info(f"Loading tensors from {TENSOR_DIR}...")
-    
-    train_df = pd.read_parquet(os.path.join(TENSOR_DIR, "train.parquet"), engine='pyarrow')
-    val_df = pd.read_parquet(os.path.join(TENSOR_DIR, "val.parquet"), engine='pyarrow')
-    
-    features = ['Mass', 'Radius', 'log10_Lambda']
-    
-    X_train_scaled = train_df[features].values
-    y_train = train_df['Label'].values
-    
-    X_val_scaled = val_df[features].values
-    y_val = val_df['Label'].values
+def load_and_preprocess_data(data_root=None):
+    paths = runtime_paths(data_root)
+    tensor_dir = paths.clean_tensor_dir
+    features = ["Mass", "Radius", "log10_Lambda"]
+    logger.info(f"Loading training-only tensors and groups from {tensor_dir}...")
+    x_train, y_train, groups = load_training_groups(
+        tensor_dir, features, "MLP grouped optimization"
+    )
+    return x_train.values, y_train.values, groups.reset_index(drop=True)
 
-    return X_train_scaled, y_train, X_val_scaled, y_val
 
-def objective(trial, X_train, y_train, X_val, y_val, device):
-    hidden_layer_sizes_str = trial.suggest_categorical("hidden_layer_sizes", [
-        "[64, 32]", 
-        "[128, 64, 32]", 
-        "[256, 128, 64]",
-        "[128, 128]",
-        "[64, 64, 32]"
-    ])
-    hidden_sizes = eval(hidden_layer_sizes_str)
-    
+def objective(trial, X_train, y_train, groups, device):
+    hidden_layer_sizes_str = trial.suggest_categorical(
+        "hidden_layer_sizes",
+        ["[64, 32]", "[128, 64, 32]", "[256, 128, 64]", "[128, 128]", "[64, 64, 32]"],
+    )
+    hidden_sizes = ast.literal_eval(hidden_layer_sizes_str)
     dropout_rate = trial.suggest_float("dropout_rate", 0.1, 0.5)
     learning_rate = trial.suggest_float("learning_rate", 1e-4, 1e-2, log=True)
-    
-    model = DynamicMLP(input_dim=X_train.shape[1], hidden_sizes=hidden_sizes, dropout_rate=dropout_rate).to(device)
-    
-    # Calculate pos_weight for BCEWithLogitsLoss (imbalanced datasets)
-    count_hadronic = np.sum(y_train == 0)
-    count_quark = np.sum(y_train == 1)
-    pos_weight = torch.tensor([count_hadronic / count_quark if count_quark > 0 else 1.0]).to(device)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-    
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
-    train_dataset = TensorDataset(torch.FloatTensor(X_train.copy()), torch.FloatTensor(y_train.copy()).unsqueeze(1))
-    val_dataset = TensorDataset(torch.FloatTensor(X_val.copy()), torch.FloatTensor(y_val.copy()).unsqueeze(1))
+    fold_scores = []
+    for fold_index, (fit_idx, score_idx) in enumerate(
+        grouped_cv_indices(groups, y_train)
+    ):
+        X_fit, X_score = scale_inner_fold(X_train, fit_idx, score_idx)
+        torch.manual_seed(CONFIG["ML_RANDOM_SEED"] + fold_index)
+        model = DynamicMLP(
+            input_dim=X_train.shape[1],
+            hidden_sizes=hidden_sizes,
+            dropout_rate=dropout_rate,
+        ).to(device)
+        y_fit = y_train[fit_idx]
+        count_quark = np.sum(y_fit == 1)
+        pos_weight = torch.tensor(
+            [np.sum(y_fit == 0) / count_quark if count_quark > 0 else 1.0]
+        ).to(device)
+        criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+        optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+        fit_loader = DataLoader(
+            TensorDataset(
+                torch.FloatTensor(X_fit),
+                torch.FloatTensor(y_fit.copy()).unsqueeze(1),
+            ),
+            batch_size=1024,
+            shuffle=True,
+        )
+        score_loader = DataLoader(
+            TensorDataset(
+                torch.FloatTensor(X_score),
+                torch.FloatTensor(y_train[score_idx].copy()).unsqueeze(1),
+            ),
+            batch_size=1024,
+            shuffle=False,
+        )
 
-    # Increased batch_size to 1024 for massive datasets
-    train_loader = DataLoader(train_dataset, batch_size=1024, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=1024, shuffle=False)
+        best_fold_score = 0.0
+        epochs_no_improve = 0
+        for _ in range(train_epochs(100)):
+            model.train()
+            for x_batch, y_batch in fit_loader:
+                x_batch, y_batch = x_batch.to(device), y_batch.to(device)
+                optimizer.zero_grad()
+                loss = criterion(model(x_batch), y_batch)
+                loss.backward()
+                optimizer.step()
 
-    epochs = 100
-    best_val_pr_auc = 0.0
-    patience = 10
-    epochs_no_improve = 0
+            model.eval()
+            predictions = []
+            with torch.no_grad():
+                for x_batch, _ in score_loader:
+                    predictions.extend(
+                        torch.sigmoid(model(x_batch.to(device))).cpu().numpy()
+                    )
+            precision, recall, _ = precision_recall_curve(
+                y_train[score_idx], predictions
+            )
+            fold_score = auc(recall, precision)
+            if fold_score > best_fold_score:
+                best_fold_score = fold_score
+                epochs_no_improve = 0
+            else:
+                epochs_no_improve += 1
+            if epochs_no_improve >= 10:
+                break
 
-    for epoch in range(epochs):
-        model.train()
-        for X_batch, y_batch in train_loader:
-            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-            optimizer.zero_grad()
-            outputs = model(X_batch)
-            loss = criterion(outputs, y_batch)
-            loss.backward()
-            optimizer.step()
-
-        model.eval()
-        val_preds = []
-        with torch.no_grad():
-            for X_batch, _ in val_loader:
-                outputs = model(X_batch.to(device))
-                probs = torch.sigmoid(outputs)
-                val_preds.extend(probs.cpu().numpy())
-                
-        precision, recall, _ = precision_recall_curve(y_val, val_preds)
-        val_pr_auc = auc(recall, precision)
-
-        if val_pr_auc > best_val_pr_auc:
-            best_val_pr_auc = val_pr_auc
-            epochs_no_improve = 0
-        else:
-            epochs_no_improve += 1
-
-        trial.report(val_pr_auc, epoch)
+        fold_scores.append(best_fold_score)
+        trial.report(float(np.mean(fold_scores)), fold_index)
         if trial.should_prune():
             raise optuna.exceptions.TrialPruned()
+    return float(np.mean(fold_scores))
 
-        if epochs_no_improve >= patience:
-            break
 
-    return best_val_pr_auc
-
-def run_optimization():
+def run_optimization(data_root=None):
+    paths = runtime_paths(data_root)
+    features = ["Mass", "Radius", "log10_Lambda"]
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Using device: {device}")
-    
-    X_train_scaled, y_train, X_val_scaled, y_val = load_and_preprocess_data()
 
-    logger.info("Initializing Optuna Study for MLP PR-AUC maximization...")
-    study = optuna.create_study(direction="maximize")
-    
-    study.optimize(lambda trial: objective(trial, X_train_scaled, y_train, X_val_scaled, y_val, device), n_trials=30)
+    X_train_scaled, y_train, groups = load_and_preprocess_data(paths.data_root)
+
+    logger.info("Initializing grouped inner-CV Optuna study (validation/test remain locked)...")
+    study = optuna.create_study(
+        direction="maximize",
+        sampler=optuna.samplers.TPESampler(seed=CONFIG["ML_RANDOM_SEED"]),
+    )
+    study.optimize(
+        lambda trial: objective(trial, X_train_scaled, y_train, groups, device),
+        n_trials=optuna_trials(30),
+    )
 
     logger.info(f"Best Trial PR-AUC: {study.best_value:.4f}")
     logger.info(f"Best Params: {study.best_params}")
 
-    os.makedirs("outputs", exist_ok=True)
-    out_path = os.path.join("outputs", "mlp_best_params.json")
-    with open(out_path, "w") as f:
+    paths.outputs_root.mkdir(parents=True, exist_ok=True)
+    out_path = paths.outputs_root / "mlp_best_params.json"
+    with open(out_path, "w", encoding="utf-8") as f:
         json.dump(study.best_params, f, indent=4)
+    write_artifact_lineage(
+        out_path,
+        paths.clean_tensor_dir,
+        "clean_mlp_hpo_parameters",
+        features,
+    )
+    write_run_manifest(
+        paths.outputs_root,
+        "clean_mlp_optimization",
+        paths.data_root,
+        {
+            "hpo_scope": "training-only grouped inner cross-validation",
+            "selected_features": features,
+        },
+    )
     logger.info(f"Saved optimized hyperparameters to {out_path}")
 
-    # Visualizations
-    plots_dir = os.path.join("plots", "ml_optimization")
-    os.makedirs(plots_dir, exist_ok=True)
+    if fast_enabled():
+        logger.info("Fast mode enabled; skipping Optuna visualization export.")
+        return
 
+    plots_dir = paths.plots_root / "ml_optimization"
+    plots_dir.mkdir(parents=True, exist_ok=True)
     try:
-        fig_hist = vis.plot_optimization_history(study)
-        fig_hist.write_image(os.path.join(plots_dir, "mlp_opt_history.pdf"))
-        
-        fig_para = vis.plot_parallel_coordinate(study)
-        fig_para.write_image(os.path.join(plots_dir, "mlp_parallel_coordinate.pdf"))
+        vis.plot_optimization_history(study).write_image(plots_dir / "mlp_opt_history.pdf")
+        vis.plot_parallel_coordinate(study).write_image(plots_dir / "mlp_parallel_coordinate.pdf")
         logger.info(f"Saved Optuna visualizations to {plots_dir}")
     except Exception as e:
         logger.warning(f"Could not save visualizations (make sure kaleido/plotly are installed): {e}")
 
+
 if __name__ == "__main__":
-    run_optimization()
+    parser = argparse.ArgumentParser(description="Optimize clean MLP classifier.")
+    add_runtime_args(parser)
+    parser.add_argument("--fast", action="store_true", help="use readiness-sized HPO defaults")
+    args = parser.parse_args()
+    configure_runtime_from_args(args)
+    run_optimization(args.data_root)

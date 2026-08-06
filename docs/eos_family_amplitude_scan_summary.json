@@ -1,0 +1,78 @@
+{
+  "candidate_profile": "recommended_2p0",
+  "mmax_floor_msun": 2.0,
+  "eos_count": 19,
+  "amplitudes": [
+    -0.05,
+    -0.02,
+    0.0,
+    0.01,
+    0.02,
+    0.03,
+    0.04,
+    0.05,
+    0.09
+  ],
+  "per_amplitude": [
+    {
+      "amplitude": -0.05,
+      "accepted": 15,
+      "total": 19,
+      "all_families_pass": false
+    },
+    {
+      "amplitude": -0.02,
+      "accepted": 17,
+      "total": 19,
+      "all_families_pass": false
+    },
+    {
+      "amplitude": 0.0,
+      "accepted": 19,
+      "total": 19,
+      "all_families_pass": true
+    },
+    {
+      "amplitude": 0.01,
+      "accepted": 19,
+      "total": 19,
+      "all_families_pass": true
+    },
+    {
+      "amplitude": 0.02,
+      "accepted": 19,
+      "total": 19,
+      "all_families_pass": true
+    },
+    {
+      "amplitude": 0.03,
+      "accepted": 18,
+      "total": 19,
+      "all_families_pass": false
+    },
+    {
+      "amplitude": 0.04,
+      "accepted": 18,
+      "total": 19,
+      "all_families_pass": false
+    },
+    {
+      "amplitude": 0.05,
+      "accepted": 18,
+      "total": 19,
+      "all_families_pass": false
+    },
+    {
+      "amplitude": 0.09,
+      "accepted": 13,
+      "total": 19,
+      "all_families_pass": false
+    }
+  ],
+  "amplitudes_passing_all_families": [
+    0.0,
+    0.01,
+    0.02
+  ],
+  "rejected_combinations": 15
+}

@@ -1,0 +1,176 @@
+{
+  "scope": "training and validation only; locked test not loaded or scored",
+  "test_rows_used": 0,
+  "development_sample_count": 96,
+  "checks": {
+    "locked_test_not_used": true,
+    "sample_identity_disjoint": true,
+    "family_identity_disjoint": true,
+    "amplitude_balanced": true,
+    "forbidden_feature_overlap_absent": true,
+    "no_exact_observable_duplicates": true,
+    "A_only_at_chance": true,
+    "positive_controls_detect_direct_proxies": true
+  },
+  "passed": true,
+  "amplitude_balance": {
+    "balanced_within_split_and_amplitude": true,
+    "counts": [
+      {
+        "split": "train",
+        "amplitude": 0.0,
+        "hadronic": 7,
+        "quark": 7
+      },
+      {
+        "split": "train",
+        "amplitude": 0.009999999776482582,
+        "hadronic": 7,
+        "quark": 7
+      },
+      {
+        "split": "train",
+        "amplitude": 0.019999999552965164,
+        "hadronic": 7,
+        "quark": 7
+      },
+      {
+        "split": "train",
+        "amplitude": 0.029999999329447746,
+        "hadronic": 7,
+        "quark": 7
+      },
+      {
+        "split": "train",
+        "amplitude": 0.03999999910593033,
+        "hadronic": 7,
+        "quark": 7
+      },
+      {
+        "split": "train",
+        "amplitude": 0.05000000074505806,
+        "hadronic": 7,
+        "quark": 7
+      },
+      {
+        "split": "val",
+        "amplitude": 0.0,
+        "hadronic": 1,
+        "quark": 1
+      },
+      {
+        "split": "val",
+        "amplitude": 0.009999999776482582,
+        "hadronic": 1,
+        "quark": 1
+      },
+      {
+        "split": "val",
+        "amplitude": 0.019999999552965164,
+        "hadronic": 1,
+        "quark": 1
+      },
+      {
+        "split": "val",
+        "amplitude": 0.029999999329447746,
+        "hadronic": 1,
+        "quark": 1
+      },
+      {
+        "split": "val",
+        "amplitude": 0.03999999910593033,
+        "hadronic": 1,
+        "quark": 1
+      },
+      {
+        "split": "val",
+        "amplitude": 0.05000000074505806,
+        "hadronic": 1,
+        "quark": 1
+      }
+    ]
+  },
+  "allowed_feature_overlap_with_forbidden_metadata": {
+    "MR": [],
+    "MRL": []
+  },
+  "nearest_train_validation_observable_distance": {
+    "MR": {
+      "exact_observable_duplicates": 0,
+      "minimum_standardized_distance": 0.33011898398399353,
+      "median_standardized_distance": 0.3416179418563843
+    },
+    "MRL": {
+      "exact_observable_duplicates": 0,
+      "minimum_standardized_distance": 0.39110052585601807,
+      "median_standardized_distance": 0.6308403611183167
+    }
+  },
+  "shortcut_probes": {
+    "deformation_A_only": {
+      "status": "allowed_control_not_model_input",
+      "columns": [
+        "Perturb_A"
+      ],
+      "validation_samples": 12,
+      "accuracy": 0.5,
+      "balanced_accuracy": 0.5,
+      "roc_auc": 0.5
+    },
+    "generation_controls": {
+      "status": "forbidden_metadata",
+      "columns": [
+        "Perturb_A",
+        "Generation_Seed"
+      ],
+      "validation_samples": 12,
+      "accuracy": 0.5,
+      "balanced_accuracy": 0.5,
+      "roc_auc": 0.5
+    },
+    "serialization_geometry": {
+      "status": "forbidden_artifact",
+      "columns": [
+        "Raw_Row_Count",
+        "Raw_Mass_Min",
+        "Raw_Mass_Max"
+      ],
+      "validation_samples": 12,
+      "accuracy": 1.0,
+      "balanced_accuracy": 1.0,
+      "roc_auc": 1.0
+    },
+    "global_physics_summaries": {
+      "status": "forbidden_out_of_scope_physics",
+      "columns": [
+        "M_Max",
+        "Radius_14",
+        "Eps_Surface"
+      ],
+      "validation_samples": 12,
+      "accuracy": 1.0,
+      "balanced_accuracy": 1.0,
+      "roc_auc": 1.0
+    },
+    "quark_parameter_presence": {
+      "status": "forbidden_direct_label_proxy",
+      "columns": [
+        "Has_Quark_Parameter_Block"
+      ],
+      "validation_samples": 12,
+      "accuracy": 1.0,
+      "balanced_accuracy": 1.0,
+      "roc_auc": 1.0
+    },
+    "formula_provenance_flag": {
+      "status": "forbidden_direct_label_proxy",
+      "columns": [
+        "Exact_Formula_Primary_Verified"
+      ],
+      "validation_samples": 12,
+      "accuracy": 1.0,
+      "balanced_accuracy": 1.0,
+      "roc_auc": 1.0
+    }
+  }
+}

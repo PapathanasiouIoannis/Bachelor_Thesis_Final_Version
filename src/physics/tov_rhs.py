@@ -29,12 +29,19 @@ _TOV_SINGULARITY_LIMIT = CONFIG["TOV_SINGULARITY_LIMIT"]
 def taylor_expansion(r: float, P_safe: float, epsilon: float, cs2_local: float, G_CONV: float, A_CONV: float) -> list:
     dm_dr = (r**2) * epsilon * G_CONV
     dP_dr = -A_CONV * G_CONV * (epsilon + P_safe) * (epsilon / 3.0 + P_safe) * r
+    # Leading-order O(r) tidal derivative from self-consistent Taylor expansion
+    # of the corrected Riccati equation (Hinderer 2008).
+    # At r->0: exp_lambda ~ 1, F ~ 1, Q ~ -6 + A_CONV*G_CONV*[matter]*r^2,
+    # (nu')^2*r^2 ~ O(r^4). Note: 4*pi in geometric units maps to A_CONV*G_CONV
+    # in the code's mixed units (provable from the TOV mass/pressure equations).
+    # Self-consistency of y = 2 + c_2*r^2 gives dy/dr = -(2/7)*(2*f_2 + q_2)*r
+    # where f_2 = -A_CONV*G_CONV*(eps-P) and q_2 = A_CONV*G_CONV*(5*eps+9*P+(eps+P)/cs2).
     dy_dr = (
         -(2.0 / 7.0)
         * A_CONV
         * G_CONV
         * r
-        * (11.0 * P_safe + epsilon / 3.0 + (epsilon + P_safe) / cs2_local)
+        * (3.0 * epsilon + 11.0 * P_safe + (epsilon + P_safe) / cs2_local)
     )
     return [dm_dr, dP_dr, dy_dr]
 
@@ -53,13 +60,16 @@ def tov_equations(r: float, m: float, P_safe: float, y_tidal: float, epsilon: fl
     dm_dr = (r**2) * epsilon * G_CONV
 
     exp_lambda = 1.0 / (1.0 - 2.0 * A_CONV * m / r)
-    Q = (
-        A_CONV
-        * G_CONV
-        * (5.0 * epsilon + 9.0 * P_safe + (epsilon + P_safe) / cs2_local)
-        * (r**2)
-    )
-    Q -= 6.0 * exp_lambda
+
+    # Tidal Riccati equation (Hinderer 2008, Postnikov et al. 2010):
+    # In geometric units (G=c=1): Q = (4pi*[matter] - 6/r^2)*e^lambda - (nu')^2
+    # In code's mixed units: 4*pi maps to A_CONV*G_CONV (see TOV derivation).
+    #   Q_code = (A_CONV*G_CONV*[5e+9P+(e+P)/cs2]*r^2 - 6) * exp_lambda - (nu'*r)^2
+    #   F      = (1 - A_CONV*G_CONV*r^2*(e-P)) * exp_lambda
+    # where nu' = dnu/dr = 2*A_CONV*(m + r^3*P*G_CONV) / (r*(r - 2*m*A_CONV))
+    Q_matter_r2 = A_CONV * G_CONV * (5.0 * epsilon + 9.0 * P_safe + (epsilon + P_safe) / cs2_local) * (r**2)
+    nu_prime = 2.0 * A_CONV * term_2 / term_3
+    Q = (Q_matter_r2 - 6.0) * exp_lambda - (nu_prime * r) ** 2
 
     F = (1.0 - A_CONV * G_CONV * (r**2) * (epsilon - P_safe)) * exp_lambda
     dy_dr = -(y_tidal**2 + y_tidal * F + Q) / r

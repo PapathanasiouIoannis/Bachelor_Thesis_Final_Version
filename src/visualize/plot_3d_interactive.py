@@ -3,6 +3,7 @@ import os
 import pandas as pd
 import plotly.graph_objects as go
 
+from src.runtime import runtime_paths
 from src.utils.logger import get_logger
 from src.visualize.style_config import COLORS
 
@@ -81,7 +82,7 @@ def plot_interactive_3d(df: pd.DataFrame) -> None:
     )
 
     # ensure output directory exists and save
-    out_dir = "outputs"
+    out_dir = runtime_paths().outputs_root
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, "fig_interactive_3d_manifold.html")
 

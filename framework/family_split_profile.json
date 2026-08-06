@@ -1,0 +1,36 @@
+{
+  "profile_id": "family_holdout_v1_pre_model_lock",
+  "expected_generation_profile": "family_pilot_v1_2p0",
+  "locked_before_model_fit": true,
+  "selection_rule": "APR-1 and CFL4 are retained as training anchors; the two-baseline H_SKYRME group remains in training to keep validation and test curve-balanced. Q_CFL14 is locked to test as the only selected B=100 block. Before fitting any classifier, NumPy default_rng seed 42 selected H_MDI for test and H_HHJ for validation from sorted eligible single-baseline hadronic groups; an independently seeded permutation of eligible B=80 quark groups selected Q_CFL10 for validation.",
+  "splits": {
+    "train": [
+      "H_APR",
+      "H_BGP",
+      "H_BL",
+      "H_SCVBB",
+      "H_SKYRME",
+      "H_WFF",
+      "Q_CFL1",
+      "Q_CFL3",
+      "Q_CFL4",
+      "Q_CFL5",
+      "Q_CFL6",
+      "Q_CFL7",
+      "Q_CFL9"
+    ],
+    "val": [
+      "H_HHJ",
+      "Q_CFL10"
+    ],
+    "test": [
+      "H_MDI",
+      "Q_CFL14"
+    ]
+  },
+  "secondary_quark_block_ood": {
+    "test_parameter_block_id": "Q_CFL_B100",
+    "interpretation": "The quark test family uses a B block absent from training; this is a secondary stress test, not an independent analytic-model holdout."
+  },
+  "test_use_policy": "Do not inspect test labels or metrics until feature representation, shortcut probes, model class, and hyperparameters are frozen from training/validation only."
+}

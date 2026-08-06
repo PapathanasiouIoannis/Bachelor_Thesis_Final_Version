@@ -1,9 +1,13 @@
 # src/physics/get_eos_library.py
 
 """
-  Provides a library of analytic Equation of State (EoS) parameterizations.
-  - Core Models: Based on Read et al. (2009) piecewise fits.
-  - Crust Model: Based on Douchin & Haensel (SLy) parameterization.
+  Provides the repository's local analytic Equation-of-State surrogates.
+
+  Important provenance boundary: these two-power/exponential expressions are
+  not the piecewise-polytrope coefficients published by Read et al. (2009), and
+  the local crust expression has not been verified as the published analytic
+  SLy representation.  In particular, ``APR-1`` is a repository baseline name,
+  not a claim of identity with Read APR1 or the CompOSE APR table.
 
 Refactored:
   - FIXED SYMPY BOTTLENECK: Implemented a lazy-loaded global cache. `lambdify`
@@ -41,7 +45,7 @@ def get_eos_library() -> tuple:
     # ==========================================
     # 1. CORE MODELS (High Density)
     # ==========================================
-    # analytic fits for Energy Density epsilon(p)[MeV/fm^3]
+    # Repository-local analytic surrogates for epsilon(P) [MeV/fm^3].
     core_exprs = {
          "MDI-1": 4.1844 * p**0.81449 + 95.00135 * p**0.31736,
          "MDI-2": 5.97365 * p**0.77374 + 89.24 * p**0.30993,

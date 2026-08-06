@@ -1,77 +1,189 @@
-import os
-import pandas as pd
-import numpy as np
-from imblearn.over_sampling import SMOTE
-from sklearn.preprocessing import StandardScaler
-import logging
+"""Audit tensor provenance, paired sweep grouping, scaling, and row balance."""
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+from __future__ import annotations
+
+import argparse
+import logging
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+from src.config import CONFIG
+from src.ml.dataset import APPROVED_OBSERVABLE_FEATURES
+from src.runtime import add_runtime_args, configure_runtime_from_args, require_paths, runtime_paths
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 logger = logging.getLogger("AUDIT_LEAKAGE")
 
+
 class DataLeakageError(Exception):
-    pass
+    """Raised when a serialized tensor violates a declared isolation invariant."""
 
-def audit_leakage():
-    TENSOR_DIR = os.path.join("data", "ml_tensors")
-    
-    logger.info(f"Loading datasets from {TENSOR_DIR}...")
-    train_df = pd.read_parquet(os.path.join(TENSOR_DIR, "train.parquet"), engine='pyarrow')
-    val_df = pd.read_parquet(os.path.join(TENSOR_DIR, "val.parquet"), engine='pyarrow')
-    test_df = pd.read_parquet(os.path.join(TENSOR_DIR, "test.parquet"), engine='pyarrow')
 
-    features = ['Mass', 'Radius', 'log10_Lambda']
-    
-    # 1. Base Intersection Audit
-    logger.info("Performing Base Intersection Audit across Train, Val, Test...")
-    # Using index=False to ensure we only hash the feature values, not their dataframe indices
-    train_hashes = set(pd.util.hash_pandas_object(train_df[features], index=False))
-    val_hashes = set(pd.util.hash_pandas_object(val_df[features], index=False))
-    test_hashes = set(pd.util.hash_pandas_object(test_df[features], index=False))
-    
-    train_val_overlap = train_hashes.intersection(val_hashes)
-    train_test_overlap = train_hashes.intersection(test_hashes)
-    val_test_overlap = val_hashes.intersection(test_hashes)
-    
-    if train_val_overlap or train_test_overlap or val_test_overlap:
-        logger.error(f"Base Leakage Detected! Train-Val: {len(train_val_overlap)}, Train-Test: {len(train_test_overlap)}, Val-Test: {len(val_test_overlap)}")
-        raise DataLeakageError("Data Leakage detected in base splits.")
-    
-    logger.info("Base Intersection Audit Passed: 0.00% overlap between raw splits.")
+def _load_required_splits(tensor_dir: Path, label: str):
+    required = [
+        tensor_dir / "train.parquet",
+        tensor_dir / "val.parquet",
+        tensor_dir / "test.parquet",
+        tensor_dir / "split_audit.parquet",
+        tensor_dir / "row_audit.parquet",
+    ]
+    require_paths(required, f"{label} leakage audit")
+    tensors = {
+        split: pd.read_parquet(tensor_dir / f"{split}.parquet", engine="pyarrow")
+        for split in ("train", "val", "test")
+    }
+    split_audit = pd.read_parquet(
+        tensor_dir / "split_audit.parquet", engine="pyarrow"
+    )
+    row_audit = pd.read_parquet(tensor_dir / "row_audit.parquet", engine="pyarrow")
+    return tensors, split_audit, row_audit
 
-    # 2. SMOTE Validation
-    logger.info("Replicating Training Phase Preprocessing (SMOTE)...")
-    X_train_scaled = train_df[features].values
-    X_val_scaled = val_df[features].values
-    X_test_scaled = test_df[features].values
-    y_train = train_df['Label'].values
 
-    logger.info("Applying SMOTE to Training set to generate synthetic rows...")
-    smote = SMOTE(random_state=42)
-    X_train_smote, _ = smote.fit_resample(X_train_scaled, y_train)
+def _audit_tensor_dir(tensor_dir: Path, label: str):
+    tensors, sidecar, rows = _load_required_splits(tensor_dir, label)
+    features = list(APPROVED_OBSERVABLE_FEATURES)
+    expected_columns = set(features + ["Label"])
+    for split, tensor in tensors.items():
+        if set(tensor.columns) != expected_columns:
+            raise DataLeakageError(
+                f"[{label}] {split} exposes non-approved or missing tensor columns: "
+                f"{sorted(set(tensor.columns) ^ expected_columns)}"
+            )
+        metadata = rows[rows["Split"] == split].reset_index(drop=True)
+        if len(metadata) != len(tensor):
+            raise DataLeakageError(
+                f"[{label}] {split} tensor/row-audit lengths differ: "
+                f"{len(tensor)} != {len(metadata)}"
+            )
+        if not np.array_equal(
+            tensor["Label"].to_numpy(dtype=int), metadata["Label"].to_numpy(dtype=int)
+        ):
+            raise DataLeakageError(f"[{label}] {split} labels are not aligned to Row_ID metadata.")
 
-    logger.info("Validating SMOTE Synthetic Rows...")
-    df_train_smote = pd.DataFrame(X_train_smote, columns=features)
-    df_val_scaled = pd.DataFrame(X_val_scaled, columns=features)
-    df_test_scaled = pd.DataFrame(X_test_scaled, columns=features)
+    if rows["Row_ID"].duplicated().any():
+        raise DataLeakageError(f"[{label}] Row_ID values are not globally unique.")
+    required_sidecar = {
+        "Curve_ID",
+        "Sweep_ID",
+        "Group_ID",
+        "Perturb_A",
+        "Label",
+        "Split",
+    }
+    if not required_sidecar.issubset(sidecar.columns):
+        raise DataLeakageError(
+            f"[{label}] split_audit is missing {sorted(required_sidecar - set(sidecar.columns))}."
+        )
 
-    smote_hashes = set(pd.util.hash_pandas_object(df_train_smote, index=False))
-    val_scaled_hashes = set(pd.util.hash_pandas_object(df_val_scaled, index=False))
-    test_scaled_hashes = set(pd.util.hash_pandas_object(df_test_scaled, index=False))
-    train_scaled_hashes = set(pd.util.hash_pandas_object(pd.DataFrame(X_train_scaled, columns=features), index=False))
+    for group_column in ("Curve_ID", "Sweep_ID", "Group_ID"):
+        split_counts = sidecar.groupby(group_column)["Split"].nunique()
+        leaked = split_counts[split_counts > 1]
+        if not leaked.empty:
+            raise DataLeakageError(
+                f"[{label}] {len(leaked)} {group_column} values cross splits."
+            )
 
-    synthetic_hashes = smote_hashes - train_scaled_hashes
-    
-    logger.info(f"Generated {len(synthetic_hashes)} uniquely synthetic rows via SMOTE.")
-    
-    synth_val_overlap = synthetic_hashes.intersection(val_scaled_hashes)
-    synth_test_overlap = synthetic_hashes.intersection(test_scaled_hashes)
-    
-    if synth_val_overlap or synth_test_overlap:
-        logger.error(f"SMOTE Leakage Detected! Synth-Val: {len(synth_val_overlap)}, Synth-Test: {len(synth_test_overlap)}")
-        raise DataLeakageError("Data Leakage detected from synthetic SMOTE rows.")
-    
-    logger.info("SMOTE Validation Passed: 0.00% overlap between synthetic rows and Val/Test sets.")
-    logger.info("FORMAL REPORT: Data pipeline is mathematically proven to be free of Data Leakage (0.00% overlap).")
+    paired_labels = sidecar.groupby("Sweep_ID")["Label"].agg(lambda values: set(values))
+    controlled = bool(len(paired_labels) and all(labels == {0, 1} for labels in paired_labels))
+    if controlled:
+        amplitudes = sidecar.groupby("Sweep_ID")["Perturb_A"].agg(["min", "max"])
+        if not np.allclose(amplitudes["min"], amplitudes["max"], atol=1e-10):
+            raise DataLeakageError(f"[{label}] paired Sweep_ID members do not share A.")
+
+        ordered = (
+            sidecar[["Sweep_ID", "Perturb_A", "Split"]]
+            .drop_duplicates()
+            .sort_values("Perturb_A")
+            .reset_index(drop=True)
+        )
+        for split in ("train", "val", "test"):
+            positions = np.flatnonzero(ordered["Split"].to_numpy() == split)
+            if len(positions) == 0 or np.any(np.diff(positions) != 1):
+                raise DataLeakageError(
+                    f"[{label}] {split} amplitudes are not one contiguous A block."
+                )
+
+    rows_per_curve = rows.groupby("Curve_ID").size()
+    expected_rows = CONFIG["ML_MASS_GRID_POINTS"]
+    if not (rows_per_curve == expected_rows).all():
+        raise DataLeakageError(
+            f"[{label}] curves do not all contribute exactly {expected_rows} rows."
+        )
+
+    train = tensors["train"]
+    train_means = train[features].mean()
+    train_stds = train[features].std()
+    if not (train_means.abs() < 0.05).all() or not (
+        (train_stds - 1.0).abs() < 0.05
+    ).all():
+        raise DataLeakageError(
+            f"[{label}] train-only scaler check failed: "
+            f"means={train_means.to_dict()}, stds={train_stds.to_dict()}"
+        )
+
+    logger.info(
+        "[%s] passed: %d rows, %d curves, %d isolation groups.",
+        label,
+        len(rows),
+        rows["Curve_ID"].nunique(),
+        rows["Group_ID"].nunique(),
+    )
+    return sidecar, rows
+
+
+def _audit_variant_alignment(clean_result, perturbed_result) -> None:
+    clean_groups, clean_rows = clean_result
+    noisy_groups, noisy_rows = perturbed_result
+    group_columns = ["Curve_ID", "Sweep_ID", "Group_ID", "Label", "Split"]
+    clean_group_map = clean_groups[group_columns].sort_values(group_columns).reset_index(drop=True)
+    noisy_group_map = noisy_groups[group_columns].sort_values(group_columns).reset_index(drop=True)
+    if not clean_group_map.equals(noisy_group_map):
+        raise DataLeakageError("Clean and perturbed variants do not reuse identical group splits.")
+
+    row_columns = ["Row_ID", "Curve_ID", "Sweep_ID", "Group_ID", "Label", "Split"]
+    clean_row_map = clean_rows[row_columns].sort_values("Row_ID").reset_index(drop=True)
+    noisy_row_map = noisy_rows[row_columns].sort_values("Row_ID").reset_index(drop=True)
+    if not clean_row_map.equals(noisy_row_map):
+        raise DataLeakageError("Clean and perturbed variants do not reuse identical latent rows.")
+    logger.info("Clean/perturbed split and Row_ID alignment passed.")
+
+
+def audit_leakage(data_root=None, include_clean=True, include_perturbed=False) -> None:
+    paths = runtime_paths(data_root)
+    clean_result = None
+    perturbed_result = None
+    if include_clean:
+        clean_result = _audit_tensor_dir(paths.clean_tensor_dir, "clean")
+    if include_perturbed:
+        perturbed_result = _audit_tensor_dir(paths.perturb_tensor_dir, "perturbed")
+    if clean_result is not None and perturbed_result is not None:
+        _audit_variant_alignment(clean_result, perturbed_result)
+    logger.info("AUDIT SUMMARY: requested tensor isolation checks passed.")
+
 
 if __name__ == "__main__":
-    audit_leakage()
+    parser = argparse.ArgumentParser(description="Audit ML tensors for split leakage.")
+    add_runtime_args(parser)
+    parser.add_argument("--clean-only", action="store_true", help="audit only clean tensors")
+    parser.add_argument(
+        "--perturbed-only", action="store_true", help="audit only perturbed tensors"
+    )
+    parser.add_argument(
+        "--include-perturbed", action="store_true", help="audit clean and perturbed tensors"
+    )
+    args = parser.parse_args()
+    configure_runtime_from_args(args)
+
+    if args.clean_only and args.perturbed_only:
+        raise SystemExit("--clean-only and --perturbed-only are mutually exclusive.")
+    audit_leakage(
+        args.data_root,
+        include_clean=not args.perturbed_only,
+        include_perturbed=args.include_perturbed or args.perturbed_only,
+    )

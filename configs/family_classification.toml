@@ -1,0 +1,29 @@
+# Audited family-level classifier configuration.
+#
+# This profile is development-only. The fixed final test was already opened
+# once, so the launcher must report its saved result and refuse re-evaluation.
+schema_version = 1
+experiment_name = "family_classification"
+workflow = "family_classification"
+mode = "development"
+
+[profiles]
+generation_profile = "framework/family_pilot_profile.json"
+split_profile = "framework/family_split_profile.json"
+model_profile = "framework/family_model_profile.json"
+
+[observable_grid]
+# Every complete curve is sampled at the same 21 masses from 1.0 to 2.0 M_sun.
+minimum_mass_msun = 1.0
+maximum_mass_msun = 2.0
+mass_points = 21
+
+[models]
+# Dummy and logistic regression are reporting-grade. The larger models remain
+# exploratory because the number of independent EoS families is small.
+primary = ["dummy", "logistic_regression"]
+exploratory = ["xgboost", "mlp"]
+
+[final_test]
+policy = "already_opened_read_only"
+allow_evaluation = false

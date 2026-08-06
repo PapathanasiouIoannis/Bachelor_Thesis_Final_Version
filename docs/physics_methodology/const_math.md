@@ -1,6 +1,6 @@
 # Constants and Configuration
 
-The `src/config.py` file centralizes all fundamental physical constants, generation ranges, and solver hyperparameters. This ensures that any adjustments to the integration limits are universally enforced across all pipeline stages.
+Fundamental constants and unit conversions remain centralized in `src/config.py` for the thesis-era solver modules. New managed experiments take their user-adjustable EoS, deformation, acceptance, and numerical settings from a validated TOML profile and pass the resolved values explicitly to the scientific workers. Users therefore change a file under `configs/`, not Python source code. The launcher records both the resolved configuration and source hash in each run manifest.
 
 ### Geometrized Units
 When evaluating the TOV equations, standard nuclear units (like MeV/fm$^3$) result in massive floating-point disparities between the pressure scale and the radius scale, causing numerical stiffness inside the RK45 solver. 

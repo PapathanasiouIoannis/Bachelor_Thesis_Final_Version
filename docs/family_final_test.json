@@ -1,0 +1,165 @@
+{
+  "model_profile_id": "family_logistic_mr_v1_pretest_lock",
+  "model_profile_sha256": "5ecf468528e5086994497e9f828de9a8bd574df2e5e5ca782bc06c784027c1c2",
+  "locked_git_commit": "85e3a26059ed26a7af0b7be38ae02bfbf703ca88",
+  "opened_utc": "2026-08-04T11:30:41.002262+00:00",
+  "test_open_count": 1,
+  "test_metrics": {
+    "samples": 12,
+    "families": 2,
+    "accuracy": 1.0,
+    "balanced_accuracy": 1.0,
+    "family_balanced_accuracy": 1.0,
+    "roc_auc": 1.0,
+    "brier": 0.0001454710221559018,
+    "log_loss": 0.011866725338887371,
+    "mean_probability_range_across_A": 0.00267770747554664,
+    "maximum_probability_range_across_A": 0.0053182498853922185
+  },
+  "per_eos": [
+    {
+      "EoS_ID": "CFL14",
+      "Label": 1,
+      "curves": 6,
+      "accuracy": 1.0,
+      "mean_probability_quark": 0.986054047067945,
+      "probability_range_across_A": 3.716506570106137e-05,
+      "minimum_mmax_msun": 2.070453643798828
+    },
+    {
+      "EoS_ID": "MDI-2",
+      "Label": 0,
+      "curves": 6,
+      "accuracy": 1.0,
+      "mean_probability_quark": 0.009640776374926708,
+      "probability_range_across_A": 0.0053182498853922185,
+      "minimum_mmax_msun": 2.0044376850128174
+    }
+  ],
+  "independent_test_family_units": 2,
+  "correlated_A_variants": 12,
+  "strict_2p08_test_applicable": false,
+  "claim_boundary": "Fixed repository hadronic-surrogate versus analytic CFL MIT-bag curve discrimination on unseen EoS families; not universal phase identification and not an observational deployment model.",
+  "predictions": [
+    {
+      "Sample_ID": "H_MDI-2_A00000_74e0812c69f4",
+      "EoS_ID": "MDI-2",
+      "Group_ID": "H_MDI",
+      "Perturb_A": 0.0,
+      "Label": 0,
+      "Probability_Quark": 0.012963053909079507,
+      "Prediction": 0,
+      "Correct": 1
+    },
+    {
+      "Sample_ID": "H_MDI-2_A00001_e117af82430e",
+      "EoS_ID": "MDI-2",
+      "Group_ID": "H_MDI",
+      "Perturb_A": 0.009999999776482582,
+      "Label": 0,
+      "Probability_Quark": 0.011097548950655026,
+      "Prediction": 0,
+      "Correct": 1
+    },
+    {
+      "Sample_ID": "H_MDI-2_A00002_c30304e743f3",
+      "EoS_ID": "MDI-2",
+      "Group_ID": "H_MDI",
+      "Perturb_A": 0.019999999552965164,
+      "Label": 0,
+      "Probability_Quark": 0.009586200155973227,
+      "Prediction": 0,
+      "Correct": 1
+    },
+    {
+      "Sample_ID": "H_MDI-2_A00003_04ae827c587b",
+      "EoS_ID": "MDI-2",
+      "Group_ID": "H_MDI",
+      "Perturb_A": 0.029999999329447746,
+      "Label": 0,
+      "Probability_Quark": 0.008574273859653243,
+      "Prediction": 0,
+      "Correct": 1
+    },
+    {
+      "Sample_ID": "H_MDI-2_A00004_2105a851799a",
+      "EoS_ID": "MDI-2",
+      "Group_ID": "H_MDI",
+      "Perturb_A": 0.03999999910593033,
+      "Label": 0,
+      "Probability_Quark": 0.007978777350511957,
+      "Prediction": 0,
+      "Correct": 1
+    },
+    {
+      "Sample_ID": "H_MDI-2_A00005_30daedd238f8",
+      "EoS_ID": "MDI-2",
+      "Group_ID": "H_MDI",
+      "Perturb_A": 0.05000000074505806,
+      "Label": 0,
+      "Probability_Quark": 0.007644804023687288,
+      "Prediction": 0,
+      "Correct": 1
+    },
+    {
+      "Sample_ID": "Q_CFL-B100-D150-MS0_A00000_52487d814a6c",
+      "EoS_ID": "CFL14",
+      "Group_ID": "Q_CFL14",
+      "Perturb_A": 0.0,
+      "Label": 1,
+      "Probability_Quark": 0.9860727499667058,
+      "Prediction": 1,
+      "Correct": 1
+    },
+    {
+      "Sample_ID": "Q_CFL-B100-D150-MS0_A00001_da33ccddec00",
+      "EoS_ID": "CFL14",
+      "Group_ID": "Q_CFL14",
+      "Perturb_A": 0.009999999776482582,
+      "Label": 1,
+      "Probability_Quark": 0.9860651321080818,
+      "Prediction": 1,
+      "Correct": 1
+    },
+    {
+      "Sample_ID": "Q_CFL-B100-D150-MS0_A00002_1d3a61686dcf",
+      "EoS_ID": "CFL14",
+      "Group_ID": "Q_CFL14",
+      "Perturb_A": 0.019999999552965164,
+      "Label": 1,
+      "Probability_Quark": 0.9860576603280348,
+      "Prediction": 1,
+      "Correct": 1
+    },
+    {
+      "Sample_ID": "Q_CFL-B100-D150-MS0_A00003_fc14090a8832",
+      "EoS_ID": "CFL14",
+      "Group_ID": "Q_CFL14",
+      "Perturb_A": 0.029999999329447746,
+      "Label": 1,
+      "Probability_Quark": 0.986050253073653,
+      "Prediction": 1,
+      "Correct": 1
+    },
+    {
+      "Sample_ID": "Q_CFL-B100-D150-MS0_A00004_3f5c6d1bb04f",
+      "EoS_ID": "CFL14",
+      "Group_ID": "Q_CFL14",
+      "Perturb_A": 0.03999999910593033,
+      "Label": 1,
+      "Probability_Quark": 0.9860429020301906,
+      "Prediction": 1,
+      "Correct": 1
+    },
+    {
+      "Sample_ID": "Q_CFL-B100-D150-MS0_A00005_dc2d0366a827",
+      "EoS_ID": "CFL14",
+      "Group_ID": "Q_CFL14",
+      "Perturb_A": 0.05000000074505806,
+      "Label": 1,
+      "Probability_Quark": 0.9860355849010047,
+      "Prediction": 1,
+      "Correct": 1
+    }
+  ]
+}
