@@ -47,6 +47,10 @@ def solve_and_validate_sequence(
     minimum_maximum_mass: float | None = None,
     maximum_maximum_mass: float | None = None,
     radius_14_bounds: tuple[float, float] | None = None,
+    rtol: float | None = None,
+    atol: float | None = None,
+    n_points: int | None = None,
+    enforce_physical_requirements: bool = True,
 ) -> tuple[list, dict, float]:
     """Solve one EoS and enforce class-neutral viability criteria.
 
@@ -58,8 +62,9 @@ def solve_and_validate_sequence(
         framework_eos.eos_callable,
         is_quark=is_quark,
         p_max_causal=framework_eos.p_max_causal,
-        rtol=CONFIG["TOV_RTOL"],
-        atol=CONFIG["TOV_ATOL"],
+        rtol=CONFIG["TOV_RTOL"] if rtol is None else float(rtol),
+        atol=CONFIG["TOV_ATOL"] if atol is None else float(atol),
+        n_points=n_points,
     )
     if not curve:
         raise RuntimeError("TOV integration returned no stable sequence points.")
@@ -76,6 +81,10 @@ def solve_and_validate_sequence(
     features = extract_features(curve_array, maximum_mass)
     if features is None or not np.isfinite(features["r_14"]):
         raise RuntimeError("Could not extract finite canonical 1.4-M_sun features.")
+    if type(enforce_physical_requirements) is not bool:
+        raise ValueError("enforce_physical_requirements must be true or false.")
+    if not enforce_physical_requirements:
+        return curve, features, float(maximum_mass)
 
     mass_lower = (
         CONFIG["M_MAX_LOWER_BOUND"]
@@ -107,8 +116,7 @@ def solve_and_validate_sequence(
         )
     if not radius_lower <= features["r_14"] <= radius_upper:
         viability_failures.append(
-            f"R_1.4={features['r_14']:.6g} outside "
-            f"[{radius_lower}, {radius_upper}] km"
+            f"R_1.4={features['r_14']:.6g} outside [{radius_lower}, {radius_upper}] km"
         )
     if viability_failures:
         raise RuntimeError("; ".join(viability_failures))

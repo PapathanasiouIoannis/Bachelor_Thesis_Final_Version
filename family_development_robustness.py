@@ -29,7 +29,7 @@ def _plot(report: dict, output_path: Path) -> None:
         masses = [row["mass_msun"] for row in rows]
         axes[0].plot(
             masses,
-            [row["inner_oof_balanced_accuracy"] for row in rows],
+            [row["inner_oof_family_balanced_accuracy"] for row in rows],
             marker="o",
             markersize=3,
             color=color,
@@ -37,14 +37,14 @@ def _plot(report: dict, output_path: Path) -> None:
         )
         axes[0].plot(
             masses,
-            [row["validation_balanced_accuracy"] for row in rows],
+            [row["validation_family_balanced_accuracy"] for row in rows],
             linestyle="--",
             color=color,
             label=f"{observable}: validation",
         )
     axes[0].axhline(0.5, color="black", linestyle=":", linewidth=1)
     axes[0].set_xlabel(r"Single observable mass [$M_\odot$]")
-    axes[0].set_ylabel("Balanced accuracy")
+    axes[0].set_ylabel("Equal-family-weighted balanced accuracy")
     axes[0].set_ylim(0.0, 1.05)
     axes[0].set_title("Single-mass feature ablation")
     axes[0].legend(frameon=False, fontsize=8)
@@ -52,13 +52,13 @@ def _plot(report: dict, output_path: Path) -> None:
     null = report["family_label_permutation_null"]
     axes[1].hist(null["null_scores"], bins=np.linspace(0.0, 1.0, 21), color="#B8B8B8")
     axes[1].axvline(
-        null["observed_inner_oof_balanced_accuracy"],
+        null["observed_inner_oof_family_balanced_accuracy"],
         color="#E45756",
         linewidth=2,
         label="observed",
     )
     axes[1].axvline(0.5, color="black", linestyle=":", linewidth=1, label="chance")
-    axes[1].set_xlabel("Family-held-out balanced accuracy")
+    axes[1].set_xlabel("Equal-family-weighted balanced accuracy")
     axes[1].set_ylabel("Permutations")
     axes[1].set_title("Whole-family label permutation null")
     axes[1].legend(frameon=False)
@@ -74,23 +74,24 @@ def _write_markdown(report: dict, output_path: Path) -> None:
     tidal = [
         row for row in report["single_mass_ablation"] if row["observable"] == "tidal"
     ]
-    best_radius = max(radius, key=lambda row: row["inner_oof_balanced_accuracy"])
-    best_tidal = max(tidal, key=lambda row: row["inner_oof_balanced_accuracy"])
+    best_radius = max(radius, key=lambda row: row["inner_oof_family_balanced_accuracy"])
+    best_tidal = max(tidal, key=lambda row: row["inner_oof_family_balanced_accuracy"])
     null = report["family_label_permutation_null"]
     markdown = "\n".join(
         [
             "# Development robustness and ablation",
             "",
             "This analysis uses only training and validation families; the locked test",
-            "pair remains unopened.",
+            "pair remains unopened. Every reported metric gives equal total weight to",
+            "each physical EoS family within each matter class.",
             "",
             f"- Best single radius: {best_radius['mass_msun']:.2f} M_sun, inner "
-            f"accuracy {best_radius['inner_oof_balanced_accuracy']:.3f}, validation "
-            f"accuracy {best_radius['validation_balanced_accuracy']:.3f}.",
+            f"accuracy {best_radius['inner_oof_family_balanced_accuracy']:.3f}, validation "
+            f"accuracy {best_radius['validation_family_balanced_accuracy']:.3f}.",
             f"- Best single tidal feature: {best_tidal['mass_msun']:.2f} M_sun, inner "
-            f"accuracy {best_tidal['inner_oof_balanced_accuracy']:.3f}, validation "
-            f"accuracy {best_tidal['validation_balanced_accuracy']:.3f}.",
-            f"- Whole-family permutation null: observed {null['observed_inner_oof_balanced_accuracy']:.3f}, "
+            f"accuracy {best_tidal['inner_oof_family_balanced_accuracy']:.3f}, validation "
+            f"accuracy {best_tidal['validation_family_balanced_accuracy']:.3f}.",
+            f"- Whole-family permutation null: observed {null['observed_inner_oof_family_balanced_accuracy']:.3f}, "
             f"null mean {null['null_mean']:.3f}, maximum {null['null_maximum']:.3f}, "
             f"empirical p={null['empirical_p_value']:.4f} ({null['permutations']} permutations).",
             "",
@@ -123,9 +124,7 @@ def main() -> None:
             "feature_set": "MR",
             "C": 0.1,
         },
-        "single_mass_ablation": single_mass_ablation(
-            training, validation, c_value=0.1
-        ),
+        "single_mass_ablation": single_mass_ablation(training, validation, c_value=0.1),
         "family_label_permutation_null": family_label_permutation_null(
             training,
             radius_feature_columns(),

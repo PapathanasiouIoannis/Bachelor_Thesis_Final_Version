@@ -2,11 +2,18 @@
 
 ## Scope
 
-`src/physics/worker_hadronic_gen.py` generates the hadronic half of the
-controlled paired experiment. It no longer samples randomly from the full
-hadronic library. Every requested sweep point uses only the repository baseline
-named `APR-1`, and the common construction is delegated to
-`framework/eos_sweep.py`.
+`src/physics/worker_hadronic_gen.py` is a thesis-era compatibility entry point
+for the hadronic half of the controlled paired experiment. It no longer samples
+randomly from the full hadronic library. Every requested sweep point uses only
+the repository baseline named `APR-1`, and the common construction is delegated
+to `framework/eos_sweep.py`.
+
+For new managed runs, `eoslab.py` is the supported entry point. It reads the
+selected TOML profile, validates the exact amplitude grid, and passes the
+resolved baseline and deformation values explicitly through
+`src/physics/experiment_runner.py`. The legacy worker instead reads mirrored
+compatibility defaults from `src/config.py`; changing source code is not part
+of the supported workflow.
 
 The default controlled parameters are
 
@@ -179,10 +186,12 @@ P_A(\epsilon)
 c_{s,A}^2(u)\,du.
 $$
 
-It performs this integral with cumulative trapezoidal integration and creates
+It performs this integral with cumulative Simpson quadrature and creates
 monotone PCHIP interpolators for $\epsilon_A(P)$ and $c_{s,A}^2(P)$. The
 analytic crust remains active for $P\leq P_{\mathrm{trans}}$. Evaluation above
 the retained causal pressure endpoint fails instead of extrapolating the core.
+Managed runs verify the reconstruction through the maximum pointwise relative
+pressure error of the undeformed $A=0$ control.
 
 ## Common stellar validation and pairing
 

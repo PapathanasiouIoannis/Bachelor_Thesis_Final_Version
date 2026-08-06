@@ -42,6 +42,7 @@ outputs/
 outputs_perturb/
 plots/
 plots_perturb/
+runs/
 
 # Jupyter Notebook
 .ipynb_checkpoints

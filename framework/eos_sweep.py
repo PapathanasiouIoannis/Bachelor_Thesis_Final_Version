@@ -12,7 +12,7 @@ from functools import lru_cache
 from typing import Callable, Sequence
 
 import numpy as np
-from scipy.integrate import cumulative_trapezoid
+from scipy.integrate import cumulative_simpson
 from scipy.interpolate import PchipInterpolator
 
 from src.config import CONFIG
@@ -98,10 +98,68 @@ class FrameworkEos:
     eps_surface: float
     baseline_name: str
     deformation: GaussianDeformation
+    catalog_identifier: str | None = None
     quark_parameters: QuarkParameters | None = None
     transition_pressure: float | None = None
     energy_shift: float = 0.0
     energy_per_baryon_surface: float | None = None
+    input_grid_points: int = 0
+    discarded_suffix_points: int = 0
+    first_discarded_sound_speed_squared: float | None = None
+
+
+def tabulate_complete_eos(
+    framework_eos: FrameworkEos,
+    *,
+    crust_points: int = 512,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Return the full pressure domain used by the stellar solver.
+
+    Self-bound quark tables already start at zero pressure. Hadronic framework
+    arrays contain the causal core, so this helper prepends a logarithmic crust
+    table down to the same surface-pressure cutoff used by the TOV event. The
+    final array identifies every row as ``crust``, ``core``, or ``self_bound``.
+    """
+
+    if framework_eos.transition_pressure is None:
+        count = len(framework_eos.pressure)
+        return (
+            np.asarray(framework_eos.pressure, dtype=float).copy(),
+            np.asarray(framework_eos.energy_density, dtype=float).copy(),
+            np.asarray(framework_eos.sound_speed_squared, dtype=float).copy(),
+            np.full(count, "self_bound", dtype=object),
+        )
+    if isinstance(crust_points, (bool, np.bool_)) or not isinstance(
+        crust_points, (int, np.integer)
+    ):
+        raise ValueError("crust_points must be an integer of at least 16.")
+    if int(crust_points) < 16:
+        raise ValueError("crust_points must be an integer of at least 16.")
+
+    transition = float(framework_eos.transition_pressure)
+    surface_pressure = float(CONFIG["SURFACE_PRESSURE_EVENT_CUTOFF"])
+    crust_pressure = np.geomspace(
+        surface_pressure,
+        transition,
+        int(crust_points),
+        endpoint=False,
+    )
+    crust_values = np.asarray(
+        [framework_eos.eos_callable(float(pressure)) for pressure in crust_pressure],
+        dtype=float,
+    )
+    pressure = np.concatenate((crust_pressure, framework_eos.pressure))
+    energy_density = np.concatenate((crust_values[:, 0], framework_eos.energy_density))
+    sound_speed_squared = np.concatenate(
+        (crust_values[:, 1], framework_eos.sound_speed_squared)
+    )
+    regions = np.concatenate(
+        (
+            np.full(len(crust_pressure), "crust", dtype=object),
+            np.full(len(framework_eos.pressure), "core", dtype=object),
+        )
+    )
+    return pressure, energy_density, sound_speed_squared, regions
 
 
 def amplitude_grid(a_min: float, a_max: float, points: int) -> list[SweepPoint]:
@@ -132,7 +190,9 @@ def gaussian_sound_speed(
     energy_density = np.asarray(energy_density, dtype=float)
     baseline_cs2 = np.asarray(baseline_cs2, dtype=float)
     if energy_density.shape != baseline_cs2.shape:
-        raise ValueError("Energy-density and sound-speed grids must have identical shapes.")
+        raise ValueError(
+            "Energy-density and sound-speed grids must have identical shapes."
+        )
     bump = deformation.amplitude * np.exp(
         -0.5 * ((energy_density - deformation.epsilon0) / deformation.sigma) ** 2
     )
@@ -158,7 +218,9 @@ def admissible_amplitude_interval(
     baseline_cs2 = np.asarray(baseline_cs2, dtype=float)
     _validate_energy_grid(energy_density)
     if energy_density.shape != baseline_cs2.shape:
-        raise ValueError("Energy-density and sound-speed grids must have identical shapes.")
+        raise ValueError(
+            "Energy-density and sound-speed grids must have identical shapes."
+        )
 
     invalid = np.flatnonzero(
         ~np.isfinite(baseline_cs2) | (baseline_cs2 <= 0.0) | (baseline_cs2 > 1.0)
@@ -169,8 +231,7 @@ def admissible_amplitude_interval(
 
     deformation = GaussianDeformation(0.0, epsilon0, sigma)
     gaussian = np.exp(
-        -0.5
-        * ((energy_density[:stop] - deformation.epsilon0) / deformation.sigma) ** 2
+        -0.5 * ((energy_density[:stop] - deformation.epsilon0) / deformation.sigma) ** 2
     )
     informative = gaussian > gaussian_floor
     if not np.any(informative):
@@ -181,15 +242,21 @@ def admissible_amplitude_interval(
     lower = float(np.max(-cs2 / gaussian))
     upper = float(np.min((1.0 - cs2) / gaussian))
     if lower >= upper:
-        raise ValueError("No causal and thermodynamically stable amplitude interval exists.")
+        raise ValueError(
+            "No causal and thermodynamically stable amplitude interval exists."
+        )
     return lower, upper
 
 
 def _validate_energy_grid(energy_density: np.ndarray) -> None:
     if energy_density.ndim != 1 or len(energy_density) < 4:
-        raise ValueError("Energy-density grid must be one-dimensional with at least four points.")
+        raise ValueError(
+            "Energy-density grid must be one-dimensional with at least four points."
+        )
     if np.any(~np.isfinite(energy_density)) or np.any(energy_density <= 0.0):
-        raise ValueError("Energy-density grid contains non-finite or non-positive values.")
+        raise ValueError(
+            "Energy-density grid contains non-finite or non-positive values."
+        )
     if np.any(np.diff(energy_density) <= 0.0):
         raise ThermodynamicInstabilityError(
             deps=float(np.min(np.diff(energy_density))),
@@ -205,7 +272,9 @@ def _causal_prefix(
     _validate_energy_grid(energy_density)
     sound_speed_squared = np.asarray(sound_speed_squared, dtype=float)
     if energy_density.shape != sound_speed_squared.shape:
-        raise ValueError("Energy-density and sound-speed grids must have identical shapes.")
+        raise ValueError(
+            "Energy-density and sound-speed grids must have identical shapes."
+        )
 
     invalid = np.flatnonzero(
         ~np.isfinite(sound_speed_squared)
@@ -228,15 +297,31 @@ def _deform_and_reconstruct_pressure(
     baseline_cs2: np.ndarray,
     start_pressure: float,
     deformation: GaussianDeformation,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, float | int | None]]:
     deformed_cs2 = gaussian_sound_speed(energy_density, baseline_cs2, deformation)
+    input_grid_points = len(deformed_cs2)
+    invalid = np.flatnonzero(
+        ~np.isfinite(deformed_cs2) | (deformed_cs2 <= 0.0) | (deformed_cs2 > 1.0)
+    )
+    first_discarded = float(deformed_cs2[invalid[0]]) if invalid.size else None
     energy_density, deformed_cs2 = _causal_prefix(energy_density, deformed_cs2)
-    pressure = float(start_pressure) + cumulative_trapezoid(
-        deformed_cs2, energy_density, initial=0.0
+    pressure = float(start_pressure) + cumulative_simpson(
+        deformed_cs2, x=energy_density, initial=0.0
     )
     if np.any(~np.isfinite(pressure)) or np.any(np.diff(pressure) <= 0.0):
-        raise ValueError("Reconstructed pressure grid is not finite and strictly increasing.")
-    return pressure, energy_density, deformed_cs2
+        raise ValueError(
+            "Reconstructed pressure grid is not finite and strictly increasing."
+        )
+    return (
+        pressure,
+        energy_density,
+        deformed_cs2,
+        {
+            "input_grid_points": input_grid_points,
+            "discarded_suffix_points": input_grid_points - len(deformed_cs2),
+            "first_discarded_sound_speed_squared": first_discarded,
+        },
+    )
 
 
 def _eval_crust(crusts: dict, pressure: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -275,9 +360,7 @@ def resolve_density_shifted_transition(
     try:
         raw_core_eps = float(eps_function(transition_pressure))
         core_deps_dp = float(deps_function(transition_pressure))
-        crust_eps, _ = _eval_crust(
-            crusts, np.array([transition_pressure], dtype=float)
-        )
+        crust_eps, _ = _eval_crust(crusts, np.array([transition_pressure], dtype=float))
         crust_eps = float(crust_eps[0])
     except Exception as exc:
         raise CrustStitchingError(
@@ -315,8 +398,15 @@ def resolve_density_shifted_transition(
 @lru_cache(maxsize=None)
 def hadronic_baseline_grids(
     baseline_name: str,
+    grid_points: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray, dict, float, float]:
     """Return the shifted hadronic baseline grids used by the sweep."""
+
+    resolved_grid_points = (
+        CONFIG["P_GRID_POINTS"] if grid_points is None else int(grid_points)
+    )
+    if resolved_grid_points < 4:
+        raise ValueError("The EoS pressure grid requires at least four points.")
 
     core_library, crusts = get_eos_library()
     if baseline_name not in core_library:
@@ -333,7 +423,7 @@ def hadronic_baseline_grids(
         crusts, anchor, transition_pressure_requested
     )
     pressure = np.linspace(
-        transition_pressure, CONFIG["P_GRID_MAX"], CONFIG["P_GRID_POINTS"]
+        transition_pressure, CONFIG["P_GRID_MAX"], resolved_grid_points
     )
     energy_density = np.asarray(anchor[0](pressure), dtype=float) - energy_shift
     deps_dp = np.asarray(anchor[1](pressure), dtype=float)
@@ -345,6 +435,8 @@ def hadronic_baseline_grids(
 def build_hadronic_eos(
     baseline_name: str,
     deformation: GaussianDeformation,
+    *,
+    grid_points: int | None = None,
 ) -> FrameworkEos:
     """Build one framework-controlled, crust-matched hadronic EoS."""
 
@@ -354,9 +446,11 @@ def build_hadronic_eos(
         crusts,
         transition_pressure,
         energy_shift,
-    ) = hadronic_baseline_grids(baseline_name)
-    pressure, energy_density, deformed_cs2 = _deform_and_reconstruct_pressure(
-        energy_density, baseline_cs2, transition_pressure, deformation
+    ) = hadronic_baseline_grids(baseline_name, grid_points)
+    pressure, energy_density, deformed_cs2, causal_metadata = (
+        _deform_and_reconstruct_pressure(
+            energy_density, baseline_cs2, transition_pressure, deformation
+        )
     )
     eps_interpolator = PchipInterpolator(pressure, energy_density, extrapolate=False)
     cs2_interpolator = PchipInterpolator(pressure, deformed_cs2, extrapolate=False)
@@ -380,19 +474,28 @@ def build_hadronic_eos(
         eps_surface=0.0,
         baseline_name=baseline_name,
         deformation=deformation,
+        catalog_identifier=baseline_name,
         transition_pressure=transition_pressure,
         energy_shift=energy_shift,
+        **causal_metadata,
     )
 
 
 @lru_cache(maxsize=None)
 def cfl_baseline_grids(
     parameters: QuarkParameters,
+    grid_points: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
     """Evaluate the analytic lowest-order CFL baseline on the pressure grid."""
 
+    resolved_grid_points = (
+        CONFIG["P_GRID_POINTS"] if grid_points is None else int(grid_points)
+    )
+    if resolved_grid_points < 4:
+        raise ValueError("The EoS pressure grid requires at least four points.")
+
     hc = float(CONFIG["HC"])
-    pressure = np.linspace(0.0, CONFIG["P_GRID_MAX"], CONFIG["P_GRID_POINTS"])
+    pressure = np.linspace(0.0, CONFIG["P_GRID_MAX"], resolved_grid_points)
     pressure_geom = pressure / hc
     bag_geom = parameters.bag_b / hc
     delta_geom = parameters.gap_delta / hc
@@ -433,6 +536,8 @@ def build_quark_eos(
     deformation: GaussianDeformation,
     *,
     maximum_surface_energy_per_baryon: float | None = None,
+    grid_points: int | None = None,
+    catalog_identifier: str | None = None,
 ) -> FrameworkEos:
     """Build one self-bound analytic CFL EoS with the shared deformation."""
 
@@ -441,7 +546,7 @@ def build_quark_eos(
         energy_density,
         baseline_cs2,
         energy_per_baryon_surface,
-    ) = cfl_baseline_grids(parameters)
+    ) = cfl_baseline_grids(parameters, grid_points)
     if (
         maximum_surface_energy_per_baryon is not None
         and energy_per_baryon_surface > maximum_surface_energy_per_baryon
@@ -452,8 +557,8 @@ def build_quark_eos(
             f"{maximum_surface_energy_per_baryon:.3f} MeV."
         )
 
-    pressure, energy_density, deformed_cs2 = _deform_and_reconstruct_pressure(
-        energy_density, baseline_cs2, 0.0, deformation
+    pressure, energy_density, deformed_cs2, causal_metadata = (
+        _deform_and_reconstruct_pressure(energy_density, baseline_cs2, 0.0, deformation)
     )
     eps_interpolator = PchipInterpolator(pressure, energy_density, extrapolate=False)
     cs2_interpolator = PchipInterpolator(pressure, deformed_cs2, extrapolate=False)
@@ -476,8 +581,10 @@ def build_quark_eos(
         eps_surface=eps_surface,
         baseline_name=parameters.baseline_name,
         deformation=deformation,
+        catalog_identifier=catalog_identifier or parameters.baseline_name,
         quark_parameters=parameters,
         energy_per_baryon_surface=energy_per_baryon_surface,
+        **causal_metadata,
     )
 
 

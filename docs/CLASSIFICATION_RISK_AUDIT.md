@@ -35,7 +35,7 @@ The current 15-value sweep also provides only 15 paired statistical groups. It i
 The following safeguards are implemented in the controlled generation path:
 
 - `framework/eos_sweep.py` provides one deformation and pressure-reconstruction implementation for both classes.
-- `src/config.py` fixes APR-1, the CFL4 tuple, `epsilon0`, `sigma`, and the declared `A` grid.
+- `configs/apr1_cfl4_reproduction.toml` fixes APR-1, the CFL4 tuple, $\epsilon_0$, $\sigma$, and the declared amplitude grid. The strict configuration loader passes those values explicitly to the shared framework implementation; users do not edit source code.
 - `Sweep_ID` identifies the shared amplitude, while `Curve_ID` remains class- and baseline-specific.
 - `physics_main.py` verifies that every `Sweep_ID` has both labels, both curves store the same `A`, only APR-1 appears in the hadronic class, and the quark parameters remain fixed.
 - The requested amplitudes are checked against both baselines' causal and thermodynamically stable amplitude intervals before generation.

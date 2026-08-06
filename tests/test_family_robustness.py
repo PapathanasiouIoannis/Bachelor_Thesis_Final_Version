@@ -29,5 +29,10 @@ def test_family_permutation_preserves_whole_groups():
     )
 
     assert result["unit"] == "physical family"
+    assert result["metric"] == "equal-family-weighted balanced accuracy"
     assert len(result["null_scores"]) == 20
     assert 0.0 <= result["empirical_p_value"] <= 1.0
+    assert (
+        result["observed_inner_oof_family_balanced_accuracy"]
+        == result["observed_inner_oof_balanced_accuracy"]
+    )

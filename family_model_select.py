@@ -13,8 +13,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from src.experiment_config import FamilyClassificationSpec, load_experiment_config
 from src.ml.family_model_selection import run_development_selection
 from src.runtime import runtime_paths
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "family_classification.toml"
 
 
 def _development_frames(ml_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -24,9 +29,7 @@ def _development_frames(ml_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
         ml_dir / "sample_audit.parquet",
         filters=[("Split", "in", ["train", "val"])],
     )
-    metadata = audit[
-        ["Sample_ID", "EoS_ID", "Group_ID", "Perturb_A", "Label", "Split"]
-    ]
+    metadata = audit[["Sample_ID", "EoS_ID", "Group_ID", "Perturb_A", "Label", "Split"]]
     train = train.merge(
         metadata[metadata["Split"] == "train"].drop(columns=["Label", "Split"]),
         on="Sample_ID",
@@ -90,7 +93,7 @@ def _write_markdown(report: dict, output_path: Path) -> None:
                     record["candidate_id"],
                     f"{record['cv_metrics']['family_balanced_accuracy']:.3f}",
                     f"{record['validation_metrics']['family_balanced_accuracy']:.3f}",
-                    f"{record['validation_metrics']['brier']:.4f}",
+                    f"{record['validation_metrics']['family_weighted_brier']:.4f}",
                     f"{record['validation_metrics']['maximum_probability_range_across_A']:.4f}",
                 ]
             )
@@ -103,15 +106,23 @@ def _write_markdown(report: dict, output_path: Path) -> None:
             "",
             "No locked-test row or metric was used. Hyperparameters were tuned with",
             "exhaustive out-of-family predictions on the 13 training groups, followed",
-            "by a single comparison of four finalists on the two validation groups.",
+            "by one comparison of the dummy baseline and two logistic-regression",
+            "specifications on the two validation groups.",
             "",
-            "| Finalist | Inner family accuracy | Validation family accuracy | Validation Brier | Max probability range across A |",
+            "All primary metrics give equal total weight to each physical EoS family",
+            "within each matter class.",
+            "",
+            "| Reporting candidate | Inner family accuracy | Validation family accuracy | Family-weighted validation Brier | Max score range across A |",
             "|---|---:|---:|---:|---:|",
             *rows,
             "",
             f"Selected candidate: `{selected['candidate_id']}`.",
             "",
             report["selection_rule"],
+            "",
+            "Random forest is retained only as an exploratory cross-validation",
+            "diagnostic. XGBoost and the neural network remain separate exploratory",
+            "workflows. None can enter reporting-grade selection.",
             "",
             "The selected specification must be committed as an immutable model profile",
             "before the final test pair is opened exactly once.",
@@ -124,11 +135,30 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", type=Path, default=Path("data/family_pilot_v1"))
     parser.add_argument("--output-dir", type=Path, default=Path("docs"))
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG,
+        help="audited family-classification TOML profile",
+    )
     args = parser.parse_args()
+    specification = load_experiment_config(args.config)
+    if not isinstance(specification, FamilyClassificationSpec):
+        raise TypeError("Model selection requires a family-classification profile.")
     paths = runtime_paths(args.data_root)
     ml_dir = paths.data_root / "family_ml"
     train, validation = _development_frames(ml_dir)
-    report, predictions = run_development_selection(train, validation)
+    report, predictions = run_development_selection(
+        train,
+        validation,
+        primary_models=specification.models.primary,
+        exploratory_models=specification.models.exploratory,
+    )
+    report["configuration"] = {
+        "path": str(args.config.resolve()),
+        "primary_models": list(specification.models.primary),
+        "exploratory_models": list(specification.models.exploratory),
+    }
     args.output_dir.mkdir(parents=True, exist_ok=True)
     (args.output_dir / "family_model_selection.json").write_text(
         json.dumps(report, indent=2) + "\n", encoding="utf-8"

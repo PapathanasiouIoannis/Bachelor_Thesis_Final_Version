@@ -26,10 +26,17 @@ reported classifier result must therefore retain the model-pair wording above.
 | Gaussian amplitude, $A$ | $-0.05,-0.04,\ldots,0.08,0.09$ | project sweep |
 
 There are 15 amplitudes with a step of $0.01$, including the undeformed
-$A=0$ control. For every amplitude, the generators attempt exactly one
-hadronic curve and one quark curve with the same `Sweep_ID`. The controlled
-values live in `src/config.py`; the common construction is implemented in
-`framework/eos_sweep.py` and called by both production workers.
+$A=0$ control. For every amplitude, the supported launcher attempts exactly
+one hadronic EoS and one quark EoS with the same sweep identifier; only an
+accepted pair proceeds to stellar-curve reporting. User-facing values live in
+`configs/apr1_cfl4_reproduction.toml`. The strict loader resolves them and
+`src/physics/experiment_runner.py` passes them explicitly to the common
+scientific implementation in `framework/eos_sweep.py`.
+
+The older `worker_hadronic_gen.py` and `worker_quark_gen.py` entry points remain
+for compatibility with thesis-era scripts. They read mirrored defaults from
+`src/config.py` and are not the supported way to configure a new managed run;
+editing source code is unnecessary when using `eoslab.py`.
 
 The CFL4 tuple is the parameter set named CFL4 by Vásquez Flores and Lugones.
 Here $B$ is a bag **energy density** in $\mathrm{MeV\,fm^{-3}}$, not
@@ -134,8 +141,9 @@ margin from that solver- and tolerance-dependent boundary. The upper endpoint
 $A=0.09$ retains the intended small-deformation study scale; it is not the
 fundamental causal upper limit.
 
-Thus `[-0.05, 0.09]` is the default **validated experimental grid**, not a
-universal literature interval. Any change to a baseline, grid, stellar
+Thus `[-0.05, 0.09]` is the default **preflight-validated amplitude grid**, not
+a universal literature interval or a guarantee that the complete EoS and
+stellar acceptance checks will pass. Any change to a baseline, grid, stellar
 acceptance threshold, or numerical tolerance requires the interval and all TOV
 sequences to be recomputed.
 
@@ -153,8 +161,9 @@ $$
 
 For the hadronic EoS, the anchor is the fixed crust/core transition. For CFL4,
 it is the self-bound surface at $P=0$. The implementation uses cumulative
-trapezoidal integration and monotone PCHIP interpolation to recover
-$\epsilon_A(P)$ and $c_{s,A}^2(P)$.
+Simpson quadrature and monotone PCHIP interpolation to recover
+$\epsilon_A(P)$ and $c_{s,A}^2(P)$. The undeformed $A=0$ recovery check covers
+this numerical reconstruction explicitly.
 
 The controlled path performs **no clipping** of negative, zero, or superluminal
 sound speeds. It validates the requested amplitude before generation and

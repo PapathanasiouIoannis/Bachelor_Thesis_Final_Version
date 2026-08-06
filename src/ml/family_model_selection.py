@@ -30,11 +30,22 @@ class Candidate:
     feature_set: str
     parameters: dict
     simplicity_rank: int
+    selection_role: str
+
+    @property
+    def eligible_for_reporting_selection(self) -> bool:
+        return self.selection_role == "reporting"
+
+
+REPORTING_MODEL_POLICY = ("dummy", "logistic_regression")
+EXPLORATORY_MODEL_POLICY = ("xgboost", "mlp")
+REPORTING_ARCHITECTURES = frozenset({"dummy", "logistic"})
+EXPLORATORY_ARCHITECTURES = frozenset({"forest", "xgboost", "mlp"})
 
 
 def candidate_grid() -> list[Candidate]:
     candidates = [
-        Candidate("dummy_prior", "dummy", "MR", {}, 99),
+        Candidate("dummy_prior", "dummy", "MR", {}, 0, "reporting"),
     ]
     for feature_set, feature_rank in (("MR", 0), ("MRL", 1)):
         for c_value in (0.001, 0.01, 0.1, 1.0, 10.0):
@@ -46,6 +57,7 @@ def candidate_grid() -> list[Candidate]:
                     feature_set,
                     {"C": c_value},
                     10 + feature_rank,
+                    "reporting",
                 )
             )
         for depth in (2, 4, None):
@@ -58,9 +70,34 @@ def candidate_grid() -> list[Candidate]:
                         feature_set,
                         {"max_depth": depth, "min_samples_leaf": leaf},
                         20 + feature_rank,
+                        "exploratory",
                     )
                 )
     return candidates
+
+
+def validate_model_policy(
+    primary_models: Iterable[str], exploratory_models: Iterable[str]
+) -> None:
+    """Require the audited reporting/exploratory policy.
+
+    Random forest is retained as a development diagnostic in this module, while
+    XGBoost and the neural network remain separate exploratory workflows.  None
+    of those architectures is eligible to become the reporting model.
+    """
+
+    primary = tuple(primary_models)
+    exploratory = tuple(exploratory_models)
+    if primary != REPORTING_MODEL_POLICY:
+        raise ValueError(
+            "Reporting-grade model selection is locked to dummy and logistic "
+            "regression, in that order."
+        )
+    if exploratory != EXPLORATORY_MODEL_POLICY:
+        raise ValueError(
+            "Exploratory models are locked to XGBoost and the multilayer "
+            "perceptron; they cannot enter reporting-grade selection."
+        )
 
 
 def build_family_pair_folds(metadata: pd.DataFrame, seed: int = 42) -> list[dict]:
@@ -71,7 +108,9 @@ def build_family_pair_folds(metadata: pd.DataFrame, seed: int = 42) -> list[dict
     )
     if any(len(labels) != 1 for labels in group_labels):
         raise ValueError("A training family contains multiple class labels.")
-    hadronic = sorted(group_labels[group_labels.map(lambda values: values == {0})].index)
+    hadronic = sorted(
+        group_labels[group_labels.map(lambda values: values == {0})].index
+    )
     quark = sorted(group_labels[group_labels.map(lambda values: values == {1})].index)
     if len(hadronic) < 3 or len(quark) < 3:
         raise ValueError("Family-pair CV requires at least three families per class.")
@@ -136,6 +175,57 @@ def inverse_family_class_weights(metadata: pd.DataFrame) -> np.ndarray:
     return raw * (len(raw) / raw.sum())
 
 
+def family_weighted_binary_metrics(
+    labels: Iterable[int],
+    probabilities: Iterable[float],
+    group_ids: Iterable[str],
+) -> dict[str, float]:
+    """Score binary predictions with equal physical-family and class weight."""
+
+    table = pd.DataFrame(
+        {
+            "Group_ID": list(group_ids),
+            "Label": np.asarray(list(labels), dtype=int),
+        }
+    )
+    probability_array = np.clip(
+        np.asarray(list(probabilities), dtype=float), 1e-8, 1.0 - 1e-8
+    )
+    if len(table) == 0 or len(table) != len(probability_array):
+        raise ValueError("Labels, probabilities, and family identifiers must align.")
+    if not np.isfinite(probability_array).all():
+        raise ValueError("Predicted probabilities must be finite.")
+    group_labels = table.groupby("Group_ID")["Label"].nunique(dropna=False)
+    if (group_labels != 1).any():
+        raise ValueError("A physical family contains multiple class labels.")
+
+    labels_array = table["Label"].to_numpy(dtype=int)
+    classes = (probability_array >= 0.5).astype(int)
+    weights = inverse_family_class_weights(table)
+    return {
+        "family_weighted_accuracy": float(
+            accuracy_score(labels_array, classes, sample_weight=weights)
+        ),
+        "family_balanced_accuracy": float(
+            balanced_accuracy_score(labels_array, classes, sample_weight=weights)
+        ),
+        "family_weighted_roc_auc": float(
+            roc_auc_score(labels_array, probability_array, sample_weight=weights)
+        ),
+        "family_weighted_brier": float(
+            brier_score_loss(labels_array, probability_array, sample_weight=weights)
+        ),
+        "family_weighted_log_loss": float(
+            log_loss(
+                labels_array,
+                probability_array,
+                labels=[0, 1],
+                sample_weight=weights,
+            )
+        ),
+    }
+
+
 def _build_estimator(candidate: Candidate):
     if candidate.architecture == "dummy":
         return DummyClassifier(strategy="prior", random_state=42), "sample_weight"
@@ -173,21 +263,27 @@ def classification_metrics(predictions: pd.DataFrame) -> dict:
         predictions["Probability_Quark"].to_numpy(dtype=float), 1e-8, 1.0 - 1e-8
     )
     classes = (probabilities >= 0.5).astype(int)
-    group_accuracy = (
-        predictions.assign(Correct=(classes == labels).astype(float))
-        .groupby(["Group_ID", "Label"], as_index=False)["Correct"]
-        .mean()
+    family_metrics = family_weighted_binary_metrics(
+        labels,
+        probabilities,
+        predictions["Group_ID"].astype(str),
     )
-    per_label_group_accuracy = group_accuracy.groupby("Label")["Correct"].mean()
     probability_ranges = predictions.groupby("EoS_ID")["Probability_Quark"].agg(
         lambda values: float(values.max() - values.min())
     )
     return {
         "samples": int(len(predictions)),
         "families": int(predictions["Group_ID"].nunique()),
+        "curve_accuracy": float(accuracy_score(labels, classes)),
+        "curve_balanced_accuracy": float(balanced_accuracy_score(labels, classes)),
+        "curve_roc_auc": float(roc_auc_score(labels, probabilities)),
+        "curve_brier": float(brier_score_loss(labels, probabilities)),
+        "curve_log_loss": float(log_loss(labels, probabilities, labels=[0, 1])),
+        **family_metrics,
+        # Compatibility aliases for the already-frozen one-time result. New
+        # development reports use the explicitly named curve/family fields.
         "accuracy": float(accuracy_score(labels, classes)),
         "balanced_accuracy": float(balanced_accuracy_score(labels, classes)),
-        "family_balanced_accuracy": float(per_label_group_accuracy.mean()),
         "roc_auc": float(roc_auc_score(labels, probabilities)),
         "brier": float(brier_score_loss(labels, probabilities)),
         "log_loss": float(log_loss(labels, probabilities, labels=[0, 1])),
@@ -227,9 +323,7 @@ def evaluate_candidate_cv(
         if set(fit["Group_ID"]) & set(score["Group_ID"]):
             raise RuntimeError("A family leaked across an inner CV fold.")
         probabilities = _fit_predict(fit, score, candidate)
-        scored = score[
-            ["Sample_ID", "EoS_ID", "Group_ID", "Perturb_A", "Label"]
-        ].copy()
+        scored = score[["Sample_ID", "EoS_ID", "Group_ID", "Perturb_A", "Label"]].copy()
         scored["Probability_Quark"] = probabilities
         scored["Fold"] = int(fold["fold"])
         predictions.append(scored)
@@ -263,21 +357,19 @@ def _best_by_architecture_feature(records: Iterable[dict]) -> list[dict]:
         )
     for candidates in table.values():
         best_accuracy = max(
-            record["cv_metrics"]["family_balanced_accuracy"]
-            for record in candidates
+            record["cv_metrics"]["family_balanced_accuracy"] for record in candidates
         )
         near_best = [
             record
             for record in candidates
-            if record["cv_metrics"]["family_balanced_accuracy"]
-            >= best_accuracy - 0.02
+            if record["cv_metrics"]["family_balanced_accuracy"] >= best_accuracy - 0.02
         ]
         winners.append(
             sorted(
                 near_best,
                 key=lambda record: (
                     _hyperparameter_simplicity_key(record),
-                    record["cv_metrics"]["brier"],
+                    record["cv_metrics"]["family_weighted_brier"],
                     record["candidate_id"],
                 ),
             )[0]
@@ -288,9 +380,13 @@ def _best_by_architecture_feature(records: Iterable[dict]) -> list[dict]:
 def run_development_selection(
     training: pd.DataFrame,
     validation: pd.DataFrame,
+    *,
+    primary_models: Iterable[str] = REPORTING_MODEL_POLICY,
+    exploratory_models: Iterable[str] = EXPLORATORY_MODEL_POLICY,
 ) -> tuple[dict, pd.DataFrame]:
-    """Tune on training families, then compare four finalists on validation."""
+    """Select only dummy/logistic models; audit larger models separately."""
 
+    validate_model_policy(primary_models, exploratory_models)
     if set(training["Group_ID"]) & set(validation["Group_ID"]):
         raise ValueError("Outer training and validation families overlap.")
     folds = build_family_pair_folds(training)
@@ -306,6 +402,10 @@ def run_development_selection(
             "feature_set": candidate.feature_set,
             "parameters": candidate.parameters,
             "simplicity_rank": candidate.simplicity_rank,
+            "selection_role": candidate.selection_role,
+            "eligible_for_reporting_selection": (
+                candidate.eligible_for_reporting_selection
+            ),
             "cv_metrics": metrics,
             "cv_fold_metrics": per_fold,
             "cv_fold_family_accuracy_mean": float(
@@ -319,7 +419,28 @@ def run_development_selection(
         predictions["Candidate_ID"] = candidate.candidate_id
         oof_frames.append(predictions)
 
-    finalists = _best_by_architecture_feature(cv_records)
+    reporting_records = [
+        record
+        for record in cv_records
+        if record["architecture"] in REPORTING_ARCHITECTURES
+    ]
+    exploratory_records = [
+        record
+        for record in cv_records
+        if record["architecture"] in EXPLORATORY_ARCHITECTURES
+    ]
+    dummy = next(
+        record for record in reporting_records if record["architecture"] == "dummy"
+    )
+    finalists = [
+        dummy,
+        *_best_by_architecture_feature(
+            record
+            for record in reporting_records
+            if record["architecture"] == "logistic"
+        ),
+    ]
+    exploratory_cv_finalists = _best_by_architecture_feature(exploratory_records)
     validation_predictions = []
     for record in finalists:
         candidate = next(
@@ -337,17 +458,18 @@ def run_development_selection(
         record["validation_metrics"] = classification_metrics(scored)
 
     best_validation = max(
-        record["validation_metrics"]["family_balanced_accuracy"]
-        for record in finalists
+        record["validation_metrics"]["family_balanced_accuracy"] for record in finalists
     )
-    tolerance = 1.0 / len(validation)
+    tolerance = 0.02
     eligible = [
         record
         for record in finalists
         if record["validation_metrics"]["family_balanced_accuracy"]
         >= best_validation - tolerance - 1e-12
     ]
-    best_inner = max(record["cv_metrics"]["family_balanced_accuracy"] for record in eligible)
+    best_inner = max(
+        record["cv_metrics"]["family_balanced_accuracy"] for record in eligible
+    )
     near_inner = [
         record
         for record in eligible
@@ -357,19 +479,31 @@ def run_development_selection(
         near_inner,
         key=lambda record: (
             record["simplicity_rank"],
-            record["validation_metrics"]["brier"],
+            record["validation_metrics"]["family_weighted_brier"],
             record["candidate_id"],
         ),
     )[0]
-    dummy = next(record for record in cv_records if record["architecture"] == "dummy")
+    if winner["architecture"] not in REPORTING_ARCHITECTURES:
+        raise RuntimeError("An exploratory model entered reporting-grade selection.")
     report = {
         "scope": "outer training and validation only; locked test not opened",
+        "model_policy": {
+            "reporting_grade": list(REPORTING_MODEL_POLICY),
+            "selection_eligible_architectures": sorted(REPORTING_ARCHITECTURES),
+            "exploratory": [
+                "random_forest",
+                *EXPLORATORY_MODEL_POLICY,
+            ],
+            "exploratory_models_can_win_reporting_selection": False,
+        },
         "selection_rule": (
             "Tune within training by exhaustive family-pair OOF CV; retain the best "
-            "hyperparameters within 0.02 of the best family accuracy using the strongest "
-            "regularization/shallowest forest; admit finalists within one validation "
-            "curve of the best family-balanced accuracy; among candidates within 0.02 "
-            "inner-CV accuracy, choose the lower-complexity model."
+            "logistic hyperparameters within 0.02 of the best equal-family-weighted "
+            "accuracy using the strongest regularization. Compare those logistic "
+            "candidates with the dummy baseline on validation families. Among reporting "
+            "candidates within 0.02 validation and inner-CV family-balanced accuracy, "
+            "choose the simpler model and then lower family-weighted Brier score. Random "
+            "forest, XGBoost, and neural-network results are exploratory and cannot win."
         ),
         "training_samples": int(len(training)),
         "validation_samples": int(len(validation)),
@@ -378,7 +512,9 @@ def run_development_selection(
         "inner_folds": folds,
         "dummy_baseline": dummy,
         "all_cv_candidates": cv_records,
+        "reporting_candidates": finalists,
         "finalists": finalists,
+        "exploratory_cv_finalists": exploratory_cv_finalists,
         "selected_candidate": winner,
         "test_rows_used": 0,
     }

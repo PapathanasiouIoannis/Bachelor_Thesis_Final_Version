@@ -1,0 +1,5 @@
+# Lean test and lint environment; exploratory XGBoost/PyTorch packages are not
+# needed by the regression suite.
+-r requirements-physics.txt
+pytest>=8.0,<9.0
+ruff>=0.9,<1.0

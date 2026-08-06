@@ -12,6 +12,13 @@ The equations below follow Lugones and Horvath's analytic approximation
 shared methods in `framework/eos_sweep.py` and then passed to the common TOV
 and tidal solver.
 
+`src/physics/worker_quark_gen.py` is retained as a thesis-era compatibility
+entry point and reads mirrored fixed defaults from `src/config.py`. For new
+managed runs, `eoslab.py` reads the selected TOML profile and
+`src/physics/experiment_runner.py` passes $B$, $\Delta$, $m_s$, and every
+deformation value explicitly to `framework/eos_sweep.py`; source-code editing
+is not required.
+
 ## Fixed CFL4 benchmark
 
 The controlled experiment fixes one published parameter tuple rather than
@@ -204,9 +211,11 @@ P_A(\epsilon)=P_0(\epsilon)
 \right].
 $$
 
-The implementation performs the equivalent cumulative trapezoidal integration
-on the common energy-density grid and builds monotone PCHIP interpolators for
-$\epsilon_A(P)$ and $c_{s,A}^2(P)$.
+The implementation performs the equivalent cumulative Simpson quadrature on
+the common energy-density grid and builds monotone PCHIP interpolators for
+$\epsilon_A(P)$ and $c_{s,A}^2(P)$. Managed runs verify the reconstruction
+through the maximum pointwise relative pressure error of the undeformed $A=0$
+control.
 
 For CFL4, $\epsilon_s\simeq215.90\ \mathrm{MeV\,fm^{-3}}$, so the requested
 Gaussian is already about $99.7\%$ of its peak value at the surface. The sweep

@@ -1,0 +1,41 @@
+# Editable sensitivity profile. Change values here; source-code edits are not
+# required. Run `eoslab.py validate` after every change.
+schema_version = 1
+experiment_name = "apr1_cfl4_exploration"
+workflow = "pair_sensitivity"
+mode = "exploration"
+
+[hadronic_eos]
+# Choose exactly one name reported by `eoslab.py list-eos`.
+baseline = "APR-1"
+
+[quark_eos]
+# B is in MeV/fm^3. Delta and m_s are in MeV.
+model = "cfl_mit_bag"
+bag_constant_mev_fm3 = 60.0
+pairing_gap_mev = 100.0
+strange_quark_mass_mev = 150.0
+
+[deformation]
+# epsilon_0 and sigma are in MeV/fm^3. The amplitude A is dimensionless.
+method = "additive_gaussian_sound_speed"
+center_energy_density_mev_fm3 = 220.0
+width_mev_fm3 = 50.0
+amplitude_start = -0.05
+amplitude_stop = 0.09
+amplitude_step = 0.01
+
+[physical_requirements]
+minimum_maximum_mass_msun = 2.08
+maximum_maximum_mass_msun = 3.0
+radius_1p4_min_km = 9.5
+radius_1p4_max_km = 14.5
+
+[numerical_settings]
+preset = "production"
+convergence_check = "endpoints_and_zero"
+
+[execution]
+random_seed = 20260804
+parallel_jobs = 4
+amplitudes_per_batch = 5

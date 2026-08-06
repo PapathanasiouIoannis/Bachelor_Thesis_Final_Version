@@ -1,0 +1,38 @@
+# Fast readiness check. This is exploratory output, not the reference result.
+schema_version = 1
+experiment_name = "apr1_cfl4_smoke"
+workflow = "pair_sensitivity"
+mode = "exploration"
+
+[hadronic_eos]
+baseline = "APR-1"
+
+[quark_eos]
+model = "cfl_mit_bag"
+bag_constant_mev_fm3 = 60.0
+pairing_gap_mev = 100.0
+strange_quark_mass_mev = 150.0
+
+[deformation]
+# Three curves per matter class: A = -0.01, 0.00, and 0.01.
+method = "additive_gaussian_sound_speed"
+center_energy_density_mev_fm3 = 220.0
+width_mev_fm3 = 50.0
+amplitude_start = -0.01
+amplitude_stop = 0.01
+amplitude_step = 0.01
+
+[physical_requirements]
+minimum_maximum_mass_msun = 2.08
+maximum_maximum_mass_msun = 3.0
+radius_1p4_min_km = 9.5
+radius_1p4_max_km = 14.5
+
+[numerical_settings]
+preset = "smoke"
+convergence_check = "none"
+
+[execution]
+random_seed = 20260804
+parallel_jobs = 2
+amplitudes_per_batch = 3
