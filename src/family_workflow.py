@@ -169,6 +169,25 @@ def _file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _file_matches_sha256(path: Path, expected_hash: str) -> bool:
+    """Match a JSON artifact hash without treating Git newlines as mutations.
+
+    The frozen family evidence was recorded on Windows. Git may materialize the
+    same tracked JSON with LF newlines on Linux, so compare the raw digest and
+    the two conventional newline representations. No JSON values, spacing, or
+    key order are canonicalized; any scientific-content change still fails.
+    """
+
+    raw = path.read_bytes()
+    candidates = {hashlib.sha256(raw).hexdigest()}
+    if path.suffix.casefold() == ".json":
+        lf_bytes = raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+        crlf_bytes = lf_bytes.replace(b"\n", b"\r\n")
+        candidates.add(hashlib.sha256(lf_bytes).hexdigest())
+        candidates.add(hashlib.sha256(crlf_bytes).hexdigest())
+    return expected_hash.casefold() in candidates
+
+
 def _artifact_status(paths: list[Path]) -> dict[str, Any]:
     missing = [str(path) for path in paths if not path.is_file()]
     return {
@@ -302,7 +321,7 @@ def _final_test_status(
         expected_hash = marker.get("result_sha256")
         if not expected_hash:
             errors.append("The one-shot marker does not record a final-result hash.")
-        elif expected_hash != _file_sha256(paths.final_test_result_path):
+        elif not _file_matches_sha256(paths.final_test_result_path, expected_hash):
             errors.append("The final result hash does not match the one-shot marker.")
         for key in ("locked_git_commit", "model_profile_sha256"):
             if marker.get(key) != result.get(key):
@@ -316,7 +335,7 @@ def _final_test_status(
         expected_profile_hash = marker.get("model_profile_sha256")
         if not expected_profile_hash:
             errors.append("The one-shot marker does not record a model-profile hash.")
-        elif expected_profile_hash != _file_sha256(paths.model_profile_path):
+        elif not _file_matches_sha256(paths.model_profile_path, expected_profile_hash):
             errors.append("The locked model profile hash does not match the marker.")
 
     if model_profile is not None:
@@ -336,7 +355,7 @@ def _final_test_status(
                 errors.append(f"Locked development evidence is missing: {record}.")
             elif not expected_hash:
                 errors.append(f"Locked development evidence has no hash: {record}.")
-            elif _file_sha256(evidence_path) != expected_hash:
+            elif not _file_matches_sha256(evidence_path, expected_hash):
                 errors.append(f"Locked development evidence hash changed: {record}.")
 
     result_summary = None

@@ -13,6 +13,7 @@ from src.family_workflow import (
     FamilyDevelopmentStageError,
     FamilyWorkflowError,
     FinalTestAlreadyOpenedError,
+    _file_matches_sha256,
     assert_final_evaluation_not_opened,
     family_workflow_status,
     refuse_final_evaluation_request,
@@ -50,6 +51,18 @@ def _write_completed_final(paths) -> None:
         "result_sha256": result_hash,
     }
     paths.final_test_marker_path.write_text(json.dumps(marker) + "\n", encoding="utf-8")
+
+
+def test_archived_json_hash_is_portable_across_git_newlines(tmp_path):
+    artifact = tmp_path / "evidence.json"
+    lf_bytes = b'{\n  "status": "COMPLETED"\n}\n'
+    crlf_bytes = lf_bytes.replace(b"\n", b"\r\n")
+    artifact.write_bytes(lf_bytes)
+
+    assert _file_matches_sha256(artifact, hashlib.sha256(crlf_bytes).hexdigest())
+    assert not _file_matches_sha256(
+        artifact, hashlib.sha256(b'{"status":"CHANGED"}').hexdigest()
+    )
 
 
 def test_status_uses_professional_family_and_model_set_wording(tmp_path):
