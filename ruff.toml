@@ -1,0 +1,7 @@
+target-version = "py311"
+line-length = 88
+
+[lint]
+# Keep the CI contract explicit so Ruff releases cannot silently broaden it.
+# These rules cover import/syntax structure, statement errors, and Pyflakes.
+select = ["E4", "E7", "E9", "F"]
