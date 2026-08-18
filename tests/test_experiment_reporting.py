@@ -6,6 +6,7 @@ import pytest
 
 from src.physics import experiment_reporting
 from src.physics.reporting import frames as reporting_frames
+from src.physics.reporting import plots as reporting_plots
 from src.physics.reporting import schemas as reporting_schemas
 from src.physics.experiment_reporting import (
     CAUSAL_DOMAIN_COLUMNS,
@@ -92,6 +93,13 @@ def test_reporting_facade_reexports_schema_objects_by_identity():
 def test_reporting_facade_reexports_pure_frame_functions_by_identity():
     for name in REPORTING_FRAME_REEXPORTS:
         assert getattr(experiment_reporting, name) is getattr(reporting_frames, name)
+
+
+def test_reporting_facade_reexports_plot_function_by_identity():
+    assert (
+        experiment_reporting.create_standard_plots
+        is reporting_plots.create_standard_plots
+    )
 
 
 def test_summary_facade_resolves_the_current_summarizer(monkeypatch):
