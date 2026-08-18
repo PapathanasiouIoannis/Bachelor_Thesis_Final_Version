@@ -17,6 +17,7 @@ from scipy.integrate import solve_ivp
 from typing import Callable
 
 from src.config import CONFIG
+from src.physics.stellar import tidal as _tidal
 from src.physics.stellar.turning_point import (
     TurningPointError as TurningPointError,
     _MASS_NOISE_ATOL as _MASS_NOISE_ATOL,
@@ -35,39 +36,20 @@ _G_CONV = CONFIG["G_CONV"]
 _A_CONV = CONFIG["A_CONV"]
 _BUCHDAHL_LIMIT = CONFIG["BUCHDAHL_LIMIT"]
 
+_tidal_lambda_from_y = _tidal._tidal_lambda_from_y
+
 
 def _apply_surface_density_correction(
     yR: float, R: float, M: float, eps_surf: float
 ) -> float:
     """Apply the self-bound surface-density jump correction to y(R)."""
-    if eps_surf <= 0.0:
-        return yR
-    delta_yR = _G_CONV * (R**3) * eps_surf / M
-    return yR - delta_yR
-
-
-def _tidal_lambda_from_y(C: float, yR: float) -> float | None:
-    num = (8.0 / 5.0) * (1.0 - 2.0 * C) ** 2 * C**5 * (2.0 * C * (yR - 1.0) - yR + 2.0)
-
-    den_term1 = 2.0 * C * (6.0 - 3.0 * yR + 3.0 * C * (5.0 * yR - 8.0))
-    den_term2 = (
-        4.0
-        * (C**3)
-        * (13.0 - 11.0 * yR + C * (3.0 * yR - 2.0) + 2.0 * (C**2) * (1.0 + yR))
+    return _tidal.apply_surface_density_correction(
+        yR,
+        R,
+        M,
+        eps_surf,
+        gravitational_conversion=_G_CONV,
     )
-    den_term3 = (
-        3.0
-        * (1.0 - 2.0 * C) ** 2
-        * (2.0 - yR + 2.0 * C * (yR - 1.0))
-        * np.log(1.0 - 2.0 * C)
-    )
-
-    den = den_term1 + den_term2 + den_term3
-    if abs(den) < 1e-25:
-        return None
-
-    k2 = num / den
-    return (2.0 / 3.0) * k2 * (C**-5)
 
 
 # event to detect surface
