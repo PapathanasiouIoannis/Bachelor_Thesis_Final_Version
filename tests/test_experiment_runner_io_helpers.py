@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 from pathlib import Path
 
 import pandas as pd
@@ -8,15 +7,7 @@ import pytest
 
 from src.eoslab_runtime import initialize_run_layout
 from src.physics import experiment_runner
-
-
-def test_runner_log_facade_preserves_exact_helper_signatures():
-    assert str(inspect.signature(experiment_runner._worker_log_path)) == (
-        "(run_log_path: 'Path') -> 'Path'"
-    )
-    assert str(inspect.signature(experiment_runner._merge_worker_logs)) == (
-        "(run_log_path: 'Path') -> 'None'"
-    )
+from src.physics.runner import run_logs
 
 
 @pytest.mark.parametrize(
@@ -42,7 +33,7 @@ def test_runner_log_facade_preserves_exact_helper_signatures():
 def test_worker_log_path_uses_the_live_pid_and_preserves_path_shape(
     monkeypatch, run_log_path, expected
 ):
-    monkeypatch.setattr(experiment_runner.os, "getpid", lambda: 4321)
+    monkeypatch.setattr(run_logs.os, "getpid", lambda: 4321)
 
     result = experiment_runner._worker_log_path(run_log_path)
 

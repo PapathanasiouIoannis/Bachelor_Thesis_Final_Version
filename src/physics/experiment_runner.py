@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
@@ -54,6 +53,7 @@ from src.physics.runner import artifacts as _artifacts
 from src.physics.runner import convergence as _convergence
 from src.physics.runner import generation as _generation
 from src.physics.runner import preflight as _preflight
+from src.physics.runner import run_logs as _run_logs
 from src.physics.runner import settings as _settings
 from src.utils.logger import close_run_log, configure_run_log, get_logger
 
@@ -351,29 +351,13 @@ def run_pair_experiment(
 def _worker_log_path(run_log_path: Path) -> Path:
     """Return a process-isolated temporary log path for one worker."""
 
-    return run_log_path.with_name(
-        f"{run_log_path.stem}.worker-{os.getpid()}{run_log_path.suffix}"
-    )
+    return _run_logs.worker_log_path(run_log_path)
 
 
 def _merge_worker_logs(run_log_path: Path) -> None:
     """Merge process-isolated worker logs into the run's canonical log."""
 
-    pattern = f"{run_log_path.stem}.worker-*{run_log_path.suffix}"
-    worker_logs = sorted(run_log_path.parent.glob(pattern))
-    if not worker_logs:
-        return
-    run_log_path.parent.mkdir(parents=True, exist_ok=True)
-    with run_log_path.open("a", encoding="utf-8") as destination:
-        for worker_log in worker_logs:
-            destination.write(worker_log.read_text(encoding="utf-8"))
-    for worker_log in worker_logs:
-        try:
-            worker_log.unlink()
-        except PermissionError:
-            # An unexpectedly failed worker may still own its handler. The log
-            # has already been merged and remains inside this isolated run.
-            pass
+    return _run_logs.merge_worker_logs(run_log_path)
 
 
 def render_resolved_toml(runtime: dict[str, Any]) -> str:
