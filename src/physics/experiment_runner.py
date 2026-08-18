@@ -50,6 +50,7 @@ from src.physics.experiment_reporting import (
     validate_eos_frame,
     write_markdown_report,
 )
+from src.physics.runner import convergence as _convergence
 from src.physics.runner import generation as _generation
 from src.physics.runner import preflight as _preflight
 from src.physics.runner import settings as _settings
@@ -66,21 +67,7 @@ REJECTION_COLUMNS = (
     "exception_type",
     "reason",
 )
-CONVERGENCE_COLUMNS = (
-    "matter_type",
-    "baseline_name",
-    "deformation_amplitude",
-    "check",
-    "delta_maximum_mass_msun",
-    "delta_radius_1p4_km",
-    "relative_delta_tidal_deformability_1p4",
-    "maximum_mass_passed",
-    "radius_1p4_passed",
-    "tidal_deformability_1p4_passed",
-    "refined_physical_requirements_passed",
-    "refined_physical_requirements_reason",
-    "passed",
-)
+CONVERGENCE_COLUMNS = _convergence.CONVERGENCE_COLUMNS
 
 NUMERICAL_PRESETS = _settings.numerical_presets_from_configuration(CONFIG)
 PairPreflight = _preflight.PairPreflight
@@ -140,6 +127,25 @@ def _solve_dependencies() -> _generation.SolveDependencies:
         resolved_numerical_settings=_resolved_numerical_settings,
         solve_and_validate_sequence=solve_and_validate_sequence,
     )
+
+
+def _convergence_dependencies() -> _convergence.ConvergenceDependencies:
+    return _convergence.ConvergenceDependencies(
+        dataframe_type=pd.DataFrame,
+        convergence_columns=CONVERGENCE_COLUMNS,
+        resolved_numerical_settings=_resolved_numerical_settings,
+        failed_convergence_record=_failed_convergence_record,
+        build_eos=_build_eos,
+        solve=_solve,
+        stellar_curve_to_frame=stellar_curve_to_frame,
+        summarize_stellar_curve=summarize_stellar_curve,
+        physical_requirements_status=_physical_requirements_status,
+    )
+
+
+def _failed_convergence_record_dependencies(
+) -> _convergence.FailedConvergenceRecordDependencies:
+    return _convergence.FailedConvergenceRecordDependencies(nan_value=np.nan)
 
 
 def _preflight_validation_dependencies() -> _preflight.ValidationDependencies:
@@ -458,117 +464,11 @@ def _solve(
 def _run_convergence_checks(
     runtime: dict[str, Any], summary: pd.DataFrame
 ) -> pd.DataFrame:
-    if runtime["numerical_settings"]["convergence_check"] == "none":
-        return pd.DataFrame(columns=CONVERGENCE_COLUMNS)
-    amplitudes = runtime["resolved"]["amplitudes"]
-    selected = sorted({float(amplitudes[0]), 0.0, float(amplitudes[-1])})
-    records = []
-    base_lookup = {
-        (str(row.matter_type), float(row.deformation_amplitude)): row
-        for row in summary.itertuples(index=False)
-    }
-    numerical = _resolved_numerical_settings(runtime)
-    variants = (
-        ("double_eos_grid", 2 * int(numerical["eos_grid_points"]), None, None, None),
-        (
-            "double_central_pressure_grid",
-            None,
-            2 * int(numerical["central_pressure_points"]),
-            None,
-            None,
-        ),
-        (
-            "tighter_tov_tolerances",
-            None,
-            None,
-            float(numerical["tov_relative_tolerance"]) / 10.0,
-            float(numerical["tov_absolute_tolerance"]) / 10.0,
-        ),
+    return _convergence.run_convergence_checks(
+        runtime,
+        summary,
+        dependencies=_convergence_dependencies(),
     )
-    for amplitude in selected:
-        for matter_type in ("hadronic", "quark"):
-            baseline = base_lookup.get((matter_type, amplitude))
-            if baseline is None:
-                records.append(
-                    _failed_convergence_record(
-                        runtime, matter_type, amplitude, "production_reference_missing"
-                    )
-                )
-                continue
-            for check, grid_points, n_points, rtol, atol in variants:
-                try:
-                    eos = _build_eos(
-                        runtime, matter_type, amplitude, grid_points=grid_points
-                    )
-                    curve, _, _ = _solve(
-                        runtime,
-                        eos,
-                        matter_type,
-                        n_points=n_points,
-                        rtol=rtol,
-                        atol=atol,
-                        enforce_physical_requirements=False,
-                    )
-                    frame = stellar_curve_to_frame(
-                        curve,
-                        eos,
-                        matter_type,
-                        "convergence",
-                        f"convergence_{matter_type}_{amplitude}_{check}",
-                    )
-                    refined = summarize_stellar_curve(frame)
-                    delta_mass = abs(
-                        float(refined["maximum_mass_msun"])
-                        - float(baseline.maximum_mass_msun)
-                    )
-                    delta_radius = abs(
-                        float(refined["radius_1p4_km"]) - float(baseline.radius_1p4_km)
-                    )
-                    reference_tidal = float(baseline.tidal_deformability_1p4)
-                    delta_tidal = abs(
-                        float(refined["tidal_deformability_1p4"]) - reference_tidal
-                    ) / abs(reference_tidal)
-                    mass_passed = delta_mass <= 0.01
-                    radius_passed = delta_radius <= 0.05
-                    tidal_passed = delta_tidal <= 0.02
-                    physical_passed, physical_reason = _physical_requirements_status(
-                        runtime, refined
-                    )
-                    records.append(
-                        {
-                            "matter_type": matter_type,
-                            "baseline_name": (
-                                eos.catalog_identifier or eos.baseline_name
-                            ),
-                            "deformation_amplitude": amplitude,
-                            "check": check,
-                            "delta_maximum_mass_msun": delta_mass,
-                            "delta_radius_1p4_km": delta_radius,
-                            "relative_delta_tidal_deformability_1p4": delta_tidal,
-                            "maximum_mass_passed": mass_passed,
-                            "radius_1p4_passed": radius_passed,
-                            "tidal_deformability_1p4_passed": tidal_passed,
-                            "refined_physical_requirements_passed": physical_passed,
-                            "refined_physical_requirements_reason": physical_reason,
-                            "passed": (
-                                mass_passed
-                                and radius_passed
-                                and tidal_passed
-                                and physical_passed
-                            ),
-                        }
-                    )
-                except Exception as error:
-                    records.append(
-                        _failed_convergence_record(
-                            runtime,
-                            matter_type,
-                            amplitude,
-                            check,
-                            reason=f"{type(error).__name__}: {error}",
-                        )
-                    )
-    return pd.DataFrame.from_records(records, columns=CONVERGENCE_COLUMNS)
 
 
 def _failed_convergence_record(
@@ -579,48 +479,20 @@ def _failed_convergence_record(
     *,
     reason: str | None = None,
 ) -> dict[str, Any]:
-    baseline = (
-        runtime["hadronic_eos"]["baseline"]
-        if matter_type == "hadronic"
-        else runtime["resolved"]["quark_eos_id"]
+    return _convergence.failed_convergence_record(
+        runtime,
+        matter_type,
+        amplitude,
+        check,
+        reason=reason,
+        dependencies=_failed_convergence_record_dependencies(),
     )
-    return {
-        "matter_type": matter_type,
-        "baseline_name": baseline,
-        "deformation_amplitude": amplitude,
-        "check": f"{check}: {reason}" if reason else check,
-        "delta_maximum_mass_msun": np.nan,
-        "delta_radius_1p4_km": np.nan,
-        "relative_delta_tidal_deformability_1p4": np.nan,
-        "maximum_mass_passed": False,
-        "radius_1p4_passed": False,
-        "tidal_deformability_1p4_passed": False,
-        "refined_physical_requirements_passed": False,
-        "refined_physical_requirements_reason": reason or "refinement unavailable",
-        "passed": False,
-    }
 
 
 def _physical_requirements_status(
     runtime: dict[str, Any], observables: dict[str, Any]
 ) -> tuple[bool, str]:
-    requirements = runtime["physical_requirements"]
-    maximum_mass = float(observables["maximum_mass_msun"])
-    radius_1p4 = float(observables["radius_1p4_km"])
-    failures = []
-    if not (
-        float(requirements["minimum_maximum_mass_msun"])
-        <= maximum_mass
-        <= float(requirements["maximum_maximum_mass_msun"])
-    ):
-        failures.append("maximum mass outside configured interval")
-    if not (
-        float(requirements["radius_1p4_min_km"])
-        <= radius_1p4
-        <= float(requirements["radius_1p4_max_km"])
-    ):
-        failures.append("radius at 1.4 solar masses outside configured interval")
-    return (not failures, "passed" if not failures else "; ".join(failures))
+    return _convergence.physical_requirements_status(runtime, observables)
 
 
 def _baseline_recovery_errors(runtime: dict[str, Any]) -> dict[str, float]:
