@@ -15,7 +15,6 @@ Refactored:
 
 import numba
 from typing import Callable
-from typing import List
 
 from src.config import CONFIG
 

@@ -30,11 +30,13 @@ logger = logging.getLogger("PERTURB_VISUALIZER")
 def load_all_curves(hadronic_dir, quark_dir):
     h_files = glob.glob(os.path.join(hadronic_dir, "*.parquet"))
     df_h = pd.concat([pd.read_parquet(f, engine='pyarrow') for f in h_files], ignore_index=True) if h_files else pd.DataFrame()
-    if not df_h.empty: df_h['Phase'] = 'Hadronic'
+    if not df_h.empty:
+        df_h['Phase'] = 'Hadronic'
 
     q_files = glob.glob(os.path.join(quark_dir, "*.parquet"))
     df_q = pd.concat([pd.read_parquet(f, engine='pyarrow') for f in q_files], ignore_index=True) if q_files else pd.DataFrame()
-    if not df_q.empty: df_q['Phase'] = 'Quark'
+    if not df_q.empty:
+        df_q['Phase'] = 'Quark'
 
     df = pd.concat([df_h, df_q], ignore_index=True)
     df = df[df['Radius'] > 0].copy()
