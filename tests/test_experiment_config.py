@@ -12,6 +12,10 @@ from src.configuration import common as configuration_common
 from src.experiment_config import (
     ConfigurationError,
     FamilyClassificationSpec,
+    FamilyModelsSpec,
+    FamilyProfilesSpec,
+    FinalTestSpec,
+    ObservableGridSpec,
     PairExperimentSpec,
     canonical_sha256,
     decimal_amplitude_grid,
@@ -374,6 +378,10 @@ def test_smoke_profile_has_three_amplitudes_and_six_expected_curves():
 def test_family_profile_loads_with_read_only_final_test_policy():
     specification = load_experiment_config(CONFIGS / "family_classification.toml")
     assert isinstance(specification, FamilyClassificationSpec)
+    assert type(specification.profiles) is FamilyProfilesSpec
+    assert type(specification.observable_grid) is ObservableGridSpec
+    assert type(specification.models) is FamilyModelsSpec
+    assert type(specification.final_test) is FinalTestSpec
     assert specification.observable_grid.mass_points == 21
     assert specification.models.primary == ("dummy", "logistic_regression")
     assert specification.final_test.policy == "already_opened_read_only"
@@ -417,6 +425,108 @@ def test_shipped_family_configuration_contract_has_literal_hash_and_shape():
     }
 
 
+@pytest.mark.parametrize(
+    ("section", "required_field", "anchor"),
+    [
+        ("family classification", "mode", 'mode = "development"'),
+        (
+            "profiles",
+            "generation_profile",
+            'generation_profile = "framework/family_pilot_profile.json"',
+        ),
+        ("observable_grid", "minimum_mass_msun", "minimum_mass_msun = 1.0"),
+        ("models", "primary", 'primary = ["dummy", "logistic_regression"]'),
+        ("final_test", "policy", 'policy = "already_opened_read_only"'),
+    ],
+)
+@pytest.mark.parametrize("mutation", ["missing", "unknown"])
+def test_family_sections_require_exact_keys(
+    tmp_path, section, required_field, anchor, mutation
+):
+    if mutation == "missing":
+        replacement = ""
+        detail = f"missing fields ['{required_field}']"
+    else:
+        replacement = f"{anchor}\nunexpected = 1"
+        detail = "unknown fields ['unexpected']"
+
+    path = _replace_profile(
+        tmp_path, "family_classification.toml", anchor, replacement
+    )
+    with pytest.raises(ConfigurationError, match=re.escape(f"{section}: {detail}.")):
+        load_experiment_config(path)
+
+
+def test_family_final_test_requires_explicit_evaluation_flag(tmp_path):
+    path = _replace_profile(
+        tmp_path,
+        "family_classification.toml",
+        "allow_evaluation = false",
+        "",
+    )
+    with pytest.raises(
+        ConfigurationError,
+        match=re.escape("final_test: missing fields ['allow_evaluation']."),
+    ):
+        load_experiment_config(path)
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "message"),
+    [
+        ('mode = "development"', 'mode = "evaluation"', "must be 'development'"),
+        (
+            'generation_profile = "framework/family_pilot_profile.json"',
+            'generation_profile = "framework/other.json"',
+            "profiles.generation_profile",
+        ),
+        (
+            'split_profile = "framework/family_split_profile.json"',
+            'split_profile = "framework/other.json"',
+            "profiles.split_profile",
+        ),
+        (
+            'model_profile = "framework/family_model_profile.json"',
+            'model_profile = "framework/other.json"',
+            "profiles.model_profile",
+        ),
+        ("minimum_mass_msun = 1.0", "minimum_mass_msun = 1.1", "21 mass points"),
+        ("maximum_mass_msun = 2.0", "maximum_mass_msun = 2.1", "21 mass points"),
+        ("mass_points = 21", "mass_points = 20", "21 mass points"),
+        (
+            'primary = ["dummy", "logistic_regression"]',
+            'primary = ["logistic_regression", "dummy"]',
+            "models.primary",
+        ),
+        (
+            'exploratory = ["xgboost", "mlp"]',
+            'exploratory = ["mlp", "xgboost"]',
+            "models.exploratory",
+        ),
+        (
+            'primary = ["dummy", "logistic_regression"]',
+            'primary = ["dummy", "dummy"]',
+            "duplicate names",
+        ),
+        (
+            'exploratory = ["xgboost", "mlp"]',
+            'exploratory = ["xgboost", "xgboost"]',
+            "duplicate names",
+        ),
+        (
+            'policy = "already_opened_read_only"',
+            'policy = "rerun_permitted"',
+            "already been opened",
+        ),
+        ("allow_evaluation = false", "allow_evaluation = 0", "true or false"),
+    ],
+)
+def test_family_scientific_invariants_are_locked(tmp_path, old, new, message):
+    path = _replace_profile(tmp_path, "family_classification.toml", old, new)
+    with pytest.raises(ConfigurationError, match=message):
+        load_experiment_config(path)
+
+
 def test_family_profile_refuses_final_test_re_evaluation(tmp_path):
     path = _replace_profile(
         tmp_path,
@@ -426,6 +536,21 @@ def test_family_profile_refuses_final_test_re_evaluation(tmp_path):
     )
     with pytest.raises(ConfigurationError, match="already been opened"):
         load_experiment_config(path)
+
+
+def test_family_profile_requires_audited_files_under_project_root(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(experiment_config, "PROJECT_ROOT", tmp_path)
+
+    with pytest.raises(
+        ConfigurationError,
+        match=re.escape(
+            "Audited profile 'framework/family_pilot_profile.json' is missing "
+            "from the repository."
+        ),
+    ):
+        load_experiment_config(CONFIGS / "family_classification.toml")
 
 
 def test_loader_rejects_unsupported_workflow_and_malformed_toml(tmp_path):

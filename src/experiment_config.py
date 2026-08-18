@@ -18,19 +18,17 @@ from typing import Any, Mapping, TypeAlias
 from framework.eos_catalog import CFL_CATALOG, HADRONIC_CATALOG
 from src.configuration.common import (
     ConfigurationError,
-    _boolean,
     _canonicalize,
-    _decimal,
     _decimal_text,
-    _integer,
-    _require_exact_keys,
     _require_table,
     _runtimeize,
     _string,
-    _string_tuple,
-    _validate_common_header,
     canonical_sha256,
     decimal_amplitude_grid,
+)
+from src.configuration.family import (
+    FamilyParserDependencies as _FamilyParserDependencies,
+    parse_family as _parse_family_impl,
 )
 from src.configuration.pair import (
     PairParserDependencies as _PairParserDependencies,
@@ -276,118 +274,20 @@ def _validate_reproduction_lock(specification: PairExperimentSpec) -> None:
     _validate_reproduction_lock_impl(specification)
 
 
+def _family_parser_dependencies() -> _FamilyParserDependencies[FamilyClassificationSpec]:
+    return _FamilyParserDependencies(
+        profiles_spec_type=FamilyProfilesSpec,
+        observable_grid_spec_type=ObservableGridSpec,
+        models_spec_type=FamilyModelsSpec,
+        final_test_spec_type=FinalTestSpec,
+        family_spec_type=FamilyClassificationSpec,
+        project_root=PROJECT_ROOT,
+        family_workflow=FAMILY_WORKFLOW,
+    )
+
+
 def _parse_family(root: Mapping[str, Any]) -> FamilyClassificationSpec:
-    expected_root = {
-        "schema_version",
-        "experiment_name",
-        "workflow",
-        "mode",
-        "profiles",
-        "observable_grid",
-        "models",
-        "final_test",
-    }
-    _require_exact_keys(root, expected_root, "family classification")
-    schema_version, name, workflow, mode = _validate_common_header(root)
-    if workflow != FAMILY_WORKFLOW:
-        raise ConfigurationError(
-            f"Family configuration workflow must be {FAMILY_WORKFLOW!r}."
-        )
-    if mode != "development":
-        raise ConfigurationError(
-            "Family classification mode must be 'development'; the final test "
-            "has already been opened and is read-only."
-        )
-
-    profiles = _require_table(root["profiles"], "profiles")
-    _require_exact_keys(
-        profiles,
-        {"generation_profile", "split_profile", "model_profile"},
-        "profiles",
-    )
-    profile_spec = FamilyProfilesSpec(
-        generation_profile=_string(
-            profiles["generation_profile"], "profiles.generation_profile"
-        ),
-        split_profile=_string(profiles["split_profile"], "profiles.split_profile"),
-        model_profile=_string(profiles["model_profile"], "profiles.model_profile"),
-    )
-    required_profiles = {
-        "generation_profile": "framework/family_pilot_profile.json",
-        "split_profile": "framework/family_split_profile.json",
-        "model_profile": "framework/family_model_profile.json",
-    }
-    for field, required in required_profiles.items():
-        configured = getattr(profile_spec, field)
-        if Path(configured).as_posix() != required:
-            raise ConfigurationError(
-                f"profiles.{field} must reference the audited profile {required!r}."
-            )
-        if not (PROJECT_ROOT / required).is_file():
-            raise ConfigurationError(
-                f"Audited profile {required!r} is missing from the repository."
-            )
-
-    grid = _require_table(root["observable_grid"], "observable_grid")
-    _require_exact_keys(
-        grid,
-        {"minimum_mass_msun", "maximum_mass_msun", "mass_points"},
-        "observable_grid",
-    )
-    grid_spec = ObservableGridSpec(
-        minimum_mass_msun=_decimal(
-            grid["minimum_mass_msun"], "observable_grid.minimum_mass_msun"
-        ),
-        maximum_mass_msun=_decimal(
-            grid["maximum_mass_msun"], "observable_grid.maximum_mass_msun"
-        ),
-        mass_points=_integer(grid["mass_points"], "observable_grid.mass_points"),
-    )
-    if grid_spec != ObservableGridSpec(Decimal("1.0"), Decimal("2.0"), 21):
-        raise ConfigurationError(
-            "The audited family workflow requires 21 mass points from 1.0 to "
-            "2.0 solar masses."
-        )
-
-    models = _require_table(root["models"], "models")
-    _require_exact_keys(models, {"primary", "exploratory"}, "models")
-    model_spec = FamilyModelsSpec(
-        primary=_string_tuple(models["primary"], "models.primary"),
-        exploratory=_string_tuple(models["exploratory"], "models.exploratory"),
-    )
-    if model_spec.primary != ("dummy", "logistic_regression"):
-        raise ConfigurationError(
-            "models.primary must be ['dummy', 'logistic_regression'] in that order."
-        )
-    if model_spec.exploratory != ("xgboost", "mlp"):
-        raise ConfigurationError(
-            "models.exploratory must be ['xgboost', 'mlp'] in that order."
-        )
-
-    final_test = _require_table(root["final_test"], "final_test")
-    _require_exact_keys(final_test, {"policy", "allow_evaluation"}, "final_test")
-    final_test_spec = FinalTestSpec(
-        policy=_string(final_test["policy"], "final_test.policy"),
-        allow_evaluation=_boolean(
-            final_test["allow_evaluation"], "final_test.allow_evaluation"
-        ),
-    )
-    if final_test_spec != FinalTestSpec("already_opened_read_only", False):
-        raise ConfigurationError(
-            "The family final test has already been opened. Set policy = "
-            "'already_opened_read_only' and allow_evaluation = false."
-        )
-
-    return FamilyClassificationSpec(
-        schema_version=schema_version,
-        experiment_name=name,
-        workflow=workflow,
-        mode=mode,
-        profiles=profile_spec,
-        observable_grid=grid_spec,
-        models=model_spec,
-        final_test=final_test_spec,
-    )
+    return _parse_family_impl(root, _family_parser_dependencies())
 
 
 def load_experiment_config(path: str | Path) -> ExperimentSpec:
