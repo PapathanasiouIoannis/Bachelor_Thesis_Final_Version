@@ -25,7 +25,7 @@ def test_hadronic_pressure_grid_contract_without_running_ode_solver():
     )
 
     expected = np.geomspace(CONFIG["GRID_P_MIN_LOG"], 500.0, 10)
-    np.testing.assert_allclose(eos.pressures, expected, rtol=1e-14)
+    np.testing.assert_array_equal(eos.pressures, expected)
     assert len(eos.pressures) == 10
     assert result == ([], [], 0.0)
 
@@ -47,7 +47,7 @@ def test_quark_pressure_grid_contract_without_running_ode_solver():
             np.logspace(2.0, 4.0, 10 - low_count),
         )
     )
-    np.testing.assert_allclose(eos.pressures, expected, rtol=1e-14)
+    np.testing.assert_array_equal(eos.pressures, expected)
     assert len(eos.pressures) == 10
     assert eos.pressures[low_count - 1] < 100.0
     assert eos.pressures[low_count] == 100.0

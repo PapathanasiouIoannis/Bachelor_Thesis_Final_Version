@@ -6,6 +6,7 @@ from src.utils.logger import get_logger
 
 logger = get_logger("TEST_TOV")
 
+
 def test_tov_n1_polytrope():
     """
     Tests the TOV solver against the known analytical solution for an N=1
@@ -26,15 +27,54 @@ def test_tov_n1_polytrope():
 
     eos_n1.eps_surf = 0.0
 
-    curve, _, _ = solve_sequence(eos_n1, is_quark=False)
+    curve, profiles, maximum_mass = solve_sequence(
+        eos_n1,
+        is_quark=False,
+        n_points=80,
+    )
 
-    # sort by mass and take the smallest mass point that passed the viability cuts (M > 0.05)
-    # the smallest mass point will have the weakest relativistic effects, thus matching
-    # the Newtonian analytical solution most accurately.
-    curve.sort(key=lambda x: x[0])
     assert len(curve) > 0, "No valid stars generated"
+    assert len(curve) == len(profiles) == 25
 
-    lowest_m_pt = curve[0]
+    curve_array = np.asarray(curve)
+    assert curve_array.shape[1] == 7
+    assert np.all(np.isfinite(curve_array))
+    assert np.all(curve_array[:, 2] > 0.0)
+    assert np.all(np.diff(curve_array[:, 3]) > 0.0)
+    assert np.all(np.diff(curve_array[:, 0]) >= 0.0)
+    np.testing.assert_allclose(maximum_mass, curve_array[-1, 0], rtol=1.0e-12)
+    np.testing.assert_allclose(
+        curve_array[-1, :6],
+        [
+            3.7103560489725678,
+            20.04010458310993,
+            6.887231706625156,
+            226.16759492228738,
+            475.57080957759314,
+            0.9511416191551863,
+        ],
+        rtol=5.0e-3,
+    )
+
+    for row_index in (0, -1):
+        radius_profile, mass_profile = profiles[row_index]
+        assert len(radius_profile) == len(mass_profile) == CONSTANTS[
+            "DENSE_PROFILES_POINTS"
+        ]
+        np.testing.assert_allclose(
+            radius_profile[[0, -1]],
+            [CONSTANTS["TOV_R_MIN"], curve_array[row_index, 1]],
+            rtol=1.0e-10,
+            atol=1.0e-12,
+        )
+        np.testing.assert_allclose(
+            mass_profile[-1],
+            curve_array[row_index, 0],
+            rtol=1.0e-10,
+            atol=1.0e-12,
+        )
+
+    lowest_m_pt = curve[int(np.argmin(curve_array[:, 0]))]
 
     M_num = lowest_m_pt[0]
     R_num = lowest_m_pt[1]
