@@ -20,6 +20,19 @@ from src.experiment_config import (
 
 CONFIGS = Path(__file__).resolve().parents[1] / "configs"
 
+PAIR_ROOT_KEYS = (
+    "deformation",
+    "execution",
+    "experiment_name",
+    "hadronic_eos",
+    "mode",
+    "numerical_settings",
+    "physical_requirements",
+    "quark_eos",
+    "schema_version",
+    "workflow",
+)
+
 
 def _replace_profile(tmp_path: Path, source_name: str, old: str, new: str) -> Path:
     text = (CONFIGS / source_name).read_text(encoding="utf-8")
@@ -200,6 +213,79 @@ def test_resolved_reproduction_identifies_cfl4_and_has_stable_hash():
     assert first.to_runtime_dict()["resolved"]["amplitudes"][5] == 0.0
 
 
+@pytest.mark.parametrize(
+    ("profile_name", "specification_hash", "resolved_hash"),
+    [
+        (
+            "apr1_cfl4_reproduction.toml",
+            "4573d40cd820a76a6919595b96933d34f41cd9aabcf04c824229c7af55a3cf26",
+            "d1c447f5d5bc73834ea74cfa964329d4caeba3856bae1abfc9a435236a37d942",
+        ),
+        (
+            "apr1_cfl4_exploration.toml",
+            "061cd262ad8f1e06f6bbccf909c0bdff52312ecf52def6a566c44fa1176df680",
+            "491e134d61eba6d28b7266cd4f268e7ec66845dbcfeb4615e86c761c001d23eb",
+        ),
+        (
+            "smoke.toml",
+            "7f2da3358eeb309ed5ea421424a4cb1b43efa1756fc67f4cbdbbe6620ccbb119",
+            "2d65745f1dadb695468ce453e802494701e9d47dd9ab2e9c935cfd6edb92c6cc",
+        ),
+    ],
+)
+def test_shipped_pair_configuration_contracts_have_literal_hashes(
+    profile_name, specification_hash, resolved_hash
+):
+    specification = load_pair_experiment(CONFIGS / profile_name)
+    resolved = resolve_pair_experiment(CONFIGS / profile_name)
+
+    assert specification.config_hash == specification_hash
+    assert resolved.config_hash == resolved_hash
+    assert tuple(specification.to_dict()) == PAIR_ROOT_KEYS
+    assert tuple(resolved.to_dict()) == ("specification", "resolved")
+    assert tuple(resolved.to_dict()["resolved"]) == (
+        "amplitudes",
+        "quark_eos_id",
+        "permitted_scientific_interpretation",
+    )
+
+
+def test_shipped_pair_serialization_preserves_section_shapes():
+    payload = load_pair_experiment(
+        CONFIGS / "apr1_cfl4_reproduction.toml"
+    ).to_dict()
+
+    assert {
+        key: tuple(value)
+        for key, value in payload.items()
+        if isinstance(value, dict)
+    } == {
+        "deformation": (
+            "amplitude_start",
+            "amplitude_step",
+            "amplitude_stop",
+            "center_energy_density_mev_fm3",
+            "method",
+            "width_mev_fm3",
+        ),
+        "execution": ("amplitudes_per_batch", "parallel_jobs", "random_seed"),
+        "hadronic_eos": ("baseline",),
+        "numerical_settings": ("convergence_check", "preset"),
+        "physical_requirements": (
+            "maximum_maximum_mass_msun",
+            "minimum_maximum_mass_msun",
+            "radius_1p4_max_km",
+            "radius_1p4_min_km",
+        ),
+        "quark_eos": (
+            "bag_constant_mev_fm3",
+            "model",
+            "pairing_gap_mev",
+            "strange_quark_mass_mev",
+        ),
+    }
+
+
 def test_canonical_hash_normalizes_equivalent_decimal_notation():
     assert canonical_sha256({"value": Decimal("60.0")}) == canonical_sha256(
         {"value": Decimal("6E+1")}
@@ -227,6 +313,40 @@ def test_family_profile_loads_with_read_only_final_test_policy():
 
     with pytest.raises(ConfigurationError, match="not a paired"):
         load_pair_experiment(CONFIGS / "family_classification.toml")
+
+
+def test_shipped_family_configuration_contract_has_literal_hash_and_shape():
+    specification = load_experiment_config(CONFIGS / "family_classification.toml")
+    payload = specification.to_dict()
+
+    assert (
+        specification.config_hash
+        == "bb1ef4c1f6536768b5e951ae1032038439e2704c512490c922a50736c9e02ca2"
+    )
+    assert tuple(payload) == (
+        "experiment_name",
+        "final_test",
+        "mode",
+        "models",
+        "observable_grid",
+        "profiles",
+        "schema_version",
+        "workflow",
+    )
+    assert {
+        key: tuple(value)
+        for key, value in payload.items()
+        if isinstance(value, dict)
+    } == {
+        "final_test": ("allow_evaluation", "policy"),
+        "models": ("exploratory", "primary"),
+        "observable_grid": (
+            "mass_points",
+            "maximum_mass_msun",
+            "minimum_mass_msun",
+        ),
+        "profiles": ("generation_profile", "model_profile", "split_profile"),
+    }
 
 
 def test_family_profile_refuses_final_test_re_evaluation(tmp_path):
