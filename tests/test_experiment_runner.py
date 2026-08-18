@@ -363,3 +363,83 @@ def test_failed_convergence_is_terminal_reportable_status(tmp_path, monkeypatch)
     assert manifest["status"] == "failed_convergence"
     report = (run_directory / "report.md").read_text(encoding="utf-8")
     assert "Terminal run status: `failed_convergence`" in report
+
+
+def test_completed_with_rejections_is_a_terminal_reportable_status(
+    tmp_path, monkeypatch
+):
+    def mixed_pair(runtime, sweep_index, amplitude, configuration_hash, run_log_path):
+        result = _fake_pair(
+            runtime, sweep_index, amplitude, configuration_hash, run_log_path
+        )
+        if sweep_index != 1:
+            return result
+        for frame in result["eos_frames"]:
+            frame.loc[:, "pair_accepted"] = False
+        return {
+            "accepted": False,
+            "eos_frames": result["eos_frames"],
+            "stellar_frames": [],
+            "rejection": {
+                "sweep_id": "A00001",
+                "deformation_amplitude": amplitude,
+                "matter_type": "hadronic",
+                "stage": "stellar_sequence",
+                "exception_type": "TurningPointError",
+                "reason": "The maximum mass was not bracketed.",
+            },
+        }
+
+    monkeypatch.setattr(experiment_runner, "_generate_pair", mixed_pair)
+
+    with pytest.raises(RuntimeError, match="completed_with_rejections"):
+        run_pair_experiment(
+            CONFIGS / "smoke.toml", parallel_jobs=1, runs_root=tmp_path / "runs"
+        )
+
+    run_directory = next((tmp_path / "runs" / "apr1_cfl4_smoke").iterdir())
+    manifest = json.loads((run_directory / "run_manifest.json").read_text())
+    assert manifest["status"] == "completed_with_rejections"
+    assert manifest["accepted_pairs"] == 2
+    assert manifest["accepted_curves"] == 4
+    assert manifest["rejected_pairs"] == 1
+    assert "error" not in manifest
+    assert manifest["artifacts"]
+    assert all(len(digest) == 64 for digest in manifest["artifacts"].values())
+
+    rejections = pd.read_csv(run_directory / "tables" / "rejections.csv")
+    assert rejections.to_dict(orient="records") == [
+        {
+            "sweep_id": "A00001",
+            "deformation_amplitude": 0.0,
+            "matter_type": "hadronic",
+            "stage": "stellar_sequence",
+            "exception_type": "TurningPointError",
+            "reason": "The maximum mass was not bracketed.",
+        }
+    ]
+    report = (run_directory / "report.md").read_text(encoding="utf-8")
+    assert "Terminal run status: `completed_with_rejections`" in report
+
+
+def test_unexpected_runner_exception_records_failed_manifest(tmp_path, monkeypatch):
+    def unexpected_pair(*args, **kwargs):
+        del args, kwargs
+        raise RuntimeError("unexpected worker failure")
+
+    monkeypatch.setattr(experiment_runner, "_generate_pair", unexpected_pair)
+
+    with pytest.raises(RuntimeError, match="unexpected worker failure"):
+        run_pair_experiment(
+            CONFIGS / "smoke.toml", parallel_jobs=1, runs_root=tmp_path / "runs"
+        )
+
+    run_directory = next((tmp_path / "runs" / "apr1_cfl4_smoke").iterdir())
+    manifest = json.loads((run_directory / "run_manifest.json").read_text())
+    assert manifest["status"] == "failed"
+    assert manifest["completed_utc"]
+    assert manifest["configuration_hash"]
+    assert manifest["preflight"]["expected_curves"] == 6
+    assert manifest["error"]["type"] == "RuntimeError"
+    assert manifest["error"]["message"] == "unexpected worker failure"
+    assert "unexpected_pair" in manifest["error"]["traceback"]
