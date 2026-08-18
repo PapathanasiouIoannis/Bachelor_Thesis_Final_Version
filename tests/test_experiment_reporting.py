@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from src.physics import experiment_reporting
+from src.physics.reporting import schemas as reporting_schemas
 from src.physics.experiment_reporting import (
     CAUSAL_DOMAIN_COLUMNS,
     EOS_COLUMNS,
@@ -41,6 +42,17 @@ REPORTING_API_NAMES = (
     "write_markdown_report",
 )
 
+REPORTING_SCHEMA_NAMES = (
+    "CAUSAL_DOMAIN_COLUMNS",
+    "CAUSAL_DOMAIN_HEADINGS",
+    "CONVERGENCE_HEADINGS",
+    "EOS_COLUMNS",
+    "REJECTION_HEADINGS",
+    "STELLAR_COLUMNS",
+    "SUMMARY_COLUMNS",
+    "SUMMARY_HEADINGS",
+)
+
 
 def _framework_eos() -> SimpleNamespace:
     return SimpleNamespace(
@@ -62,6 +74,11 @@ def _valid_stellar_curve() -> list[list[float]]:
 
 def test_reporting_module_exposes_its_intentional_api():
     assert all(hasattr(experiment_reporting, name) for name in REPORTING_API_NAMES)
+
+
+def test_reporting_facade_reexports_schema_objects_by_identity():
+    for name in REPORTING_SCHEMA_NAMES:
+        assert getattr(experiment_reporting, name) is getattr(reporting_schemas, name)
 
 
 def test_stellar_curve_serialization_and_summary_happy_path():
