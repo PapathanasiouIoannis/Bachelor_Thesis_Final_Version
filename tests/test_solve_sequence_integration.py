@@ -4,73 +4,11 @@ import pytest
 from src.config import CONFIG
 from src.physics import solve_sequence as sequence_module
 from src.physics.solve_sequence import solve_sequence
-
-
-class RecordingEos:
-    def __init__(self, *, eps_surf=0.0):
-        self.pressures = []
-        self.eps_surf = eps_surf
-
-    def __call__(self, pressure):
-        self.pressures.append(float(pressure))
-        return float(250.0 + pressure), 0.42
-
-
-class SyntheticSolution:
-    def __init__(
-        self,
-        *,
-        initial_state,
-        mass=1.0,
-        radius=12.0,
-        y_surface=0.8,
-        surfaced=True,
-        status=None,
-    ):
-        self.status = (1 if surfaced else 0) if status is None else status
-        self.mass = mass
-        self.radius = radius
-        self.y_surface = y_surface
-        self.initial_state = initial_state
-        self.sampled_radii = None
-        if surfaced:
-            self.t_events = [np.array([radius])]
-            self.y_events = [
-                np.array(
-                    [
-                        [
-                            mass,
-                            CONFIG["SURFACE_PRESSURE_EVENT_CUTOFF"],
-                            y_surface,
-                        ]
-                    ]
-                )
-            ]
-        else:
-            self.t_events = [np.array([])]
-            self.y_events = [np.empty((0, 3))]
-
-    def sol(self, radii):
-        self.sampled_radii = np.asarray(radii)
-        sample_count = len(self.sampled_radii)
-        return np.vstack(
-            (
-                np.linspace(self.initial_state[0], self.mass, sample_count),
-                np.linspace(
-                    self.initial_state[1],
-                    CONFIG["SURFACE_PRESSURE_EVENT_CUTOFF"],
-                    sample_count,
-                ),
-                np.linspace(self.initial_state[2], self.y_surface, sample_count),
-            )
-        )
-
-
-def _capture_log(records):
-    def capture(*args, **kwargs):
-        records.append((args, kwargs))
-
-    return capture
+from tests.stellar_integration_support import (
+    RecordingEos,
+    SyntheticSolution,
+    capture_log,
+)
 
 
 def test_mixed_solver_outcomes_preserve_curve_and_profile_assembly(
@@ -105,7 +43,7 @@ def test_mixed_solver_outcomes_preserve_curve_and_profile_assembly(
     monkeypatch.setattr(
         sequence_module.logger,
         "exception",
-        _capture_log(logged),
+        capture_log(logged),
     )
 
     curve, profiles, maximum_mass = solve_sequence(
@@ -197,7 +135,7 @@ def test_expected_integrator_errors_are_logged_and_skipped(
     monkeypatch.setattr(
         sequence_module.logger,
         "exception",
-        _capture_log(logged),
+        capture_log(logged),
     )
 
     result = solve_sequence(eos, n_points=4)
@@ -259,6 +197,7 @@ def test_unusable_surface_results_are_silently_rejected(
     rejection_case,
 ):
     solver_calls = []
+    solutions = []
     mass = 1.0
     radius = 12.0
     surfaced = True
@@ -269,9 +208,19 @@ def test_unusable_surface_results_are_silently_rejected(
         surfaced = False
     elif rejection_case == "small_mass":
         mass = CONFIG["MIN_MASS_CUTOFF"] / 2.0
+        monkeypatch.setattr(
+            sequence_module,
+            "_tidal_lambda_from_y",
+            lambda *args: pytest.fail("tidal calculation ran after mass cutoff"),
+        )
     elif rejection_case == "small_radius":
         mass = 2.0 * CONFIG["MIN_MASS_CUTOFF"]
         radius = CONFIG["MIN_RADIUS_CUTOFF"] / 2.0
+        monkeypatch.setattr(
+            sequence_module,
+            "_tidal_lambda_from_y",
+            lambda *args: pytest.fail("tidal calculation ran after radius cutoff"),
+        )
     elif rejection_case == "buchdahl_limit":
         mass = (
             1.01
@@ -288,13 +237,15 @@ def test_unusable_surface_results_are_silently_rejected(
 
     def fake_solve_ivp(**arguments):
         solver_calls.append(arguments)
-        return SyntheticSolution(
+        solution = SyntheticSolution(
             initial_state=arguments["y0"],
             mass=mass,
             radius=radius,
             surfaced=surfaced,
             status=status,
         )
+        solutions.append(solution)
+        return solution
 
     monkeypatch.setattr(sequence_module, "solve_ivp", fake_solve_ivp)
 
@@ -302,3 +253,5 @@ def test_unusable_surface_results_are_silently_rejected(
 
     assert result == ([], [], 0.0)
     assert len(solver_calls) == 4
+    if rejection_case in {"small_mass", "small_radius"}:
+        assert all(solution.sampled_radii is None for solution in solutions)
