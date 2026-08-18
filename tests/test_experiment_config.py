@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import FrozenInstanceError
 from decimal import Decimal
 from pathlib import Path
@@ -133,6 +134,37 @@ def test_unknown_and_missing_fields_are_rejected(tmp_path):
     )
     with pytest.raises(ConfigurationError, match="missing fields.*parallel_jobs"):
         load_experiment_config(missing)
+
+
+@pytest.mark.parametrize(
+    ("section", "required_field", "anchor"),
+    [
+        ("hadronic_eos", "baseline", 'baseline = "APR-1"'),
+        ("quark_eos", "model", 'model = "cfl_mit_bag"'),
+        ("deformation", "method", 'method = "additive_gaussian_sound_speed"'),
+        (
+            "physical_requirements",
+            "minimum_maximum_mass_msun",
+            "minimum_maximum_mass_msun = 2.08",
+        ),
+        ("numerical_settings", "preset", 'preset = "smoke"'),
+        ("execution", "random_seed", "random_seed = 20260804"),
+    ],
+)
+@pytest.mark.parametrize("mutation", ["missing", "unknown"])
+def test_pair_sections_require_exact_keys(
+    tmp_path, section, required_field, anchor, mutation
+):
+    if mutation == "missing":
+        replacement = ""
+        detail = f"missing fields ['{required_field}']"
+    else:
+        replacement = f"{anchor}\nunexpected = 1"
+        detail = "unknown fields ['unexpected']"
+
+    path = _replace_profile(tmp_path, "smoke.toml", anchor, replacement)
+    with pytest.raises(ConfigurationError, match=re.escape(f"{section}: {detail}.")):
+        load_experiment_config(path)
 
 
 @pytest.mark.parametrize("name", ["ab", "a" * 65, "Upper_case"])

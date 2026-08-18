@@ -32,6 +32,11 @@ from src.configuration.common import (
     canonical_sha256,
     decimal_amplitude_grid,
 )
+from src.configuration.pair import (
+    PairParserDependencies as _PairParserDependencies,
+    parse_pair as _parse_pair_impl,
+    validate_reproduction_lock as _validate_reproduction_lock_impl,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -243,300 +248,32 @@ class ResolvedExperiment:
         return output
 
 
+def _pair_parser_dependencies() -> _PairParserDependencies[PairExperimentSpec]:
+    return _PairParserDependencies(
+        hadronic_spec_type=HadronicEosSpec,
+        quark_spec_type=QuarkEosSpec,
+        deformation_spec_type=DeformationSpec,
+        physical_requirements_spec_type=PhysicalRequirementsSpec,
+        numerical_settings_spec_type=NumericalSettingsSpec,
+        execution_spec_type=ExecutionSpec,
+        pair_spec_type=PairExperimentSpec,
+        supported_hadronic_baselines=_SUPPORTED_HADRONIC_BASELINES,
+        pair_workflow=PAIR_WORKFLOW,
+        reproduction_mode=REPRODUCTION_MODE,
+        exploration_mode=EXPLORATION_MODE,
+    )
+
+
 def _parse_pair(root: Mapping[str, Any]) -> PairExperimentSpec:
-    expected_root = {
-        "schema_version",
-        "experiment_name",
-        "workflow",
-        "mode",
-        "hadronic_eos",
-        "quark_eos",
-        "deformation",
-        "physical_requirements",
-        "numerical_settings",
-        "execution",
-    }
-    _require_exact_keys(root, expected_root, "pair experiment")
-    schema_version, name, workflow, mode = _validate_common_header(root)
-    if workflow != PAIR_WORKFLOW:
-        raise ConfigurationError(f"Pair experiment workflow must be {PAIR_WORKFLOW!r}.")
-    if mode not in {REPRODUCTION_MODE, EXPLORATION_MODE}:
-        raise ConfigurationError(
-            "Pair experiment mode must be 'reproduction' or 'exploration'."
-        )
-
-    hadronic = _require_table(root["hadronic_eos"], "hadronic_eos")
-    _require_exact_keys(hadronic, {"baseline"}, "hadronic_eos")
-    hadronic_spec = HadronicEosSpec(
-        baseline=_string(hadronic["baseline"], "hadronic_eos.baseline")
+    return _parse_pair_impl(
+        root,
+        _pair_parser_dependencies(),
+        reproduction_validator=_validate_reproduction_lock,
     )
-    if hadronic_spec.baseline not in _SUPPORTED_HADRONIC_BASELINES:
-        choices = ", ".join(sorted(_SUPPORTED_HADRONIC_BASELINES))
-        raise ConfigurationError(
-            f"hadronic_eos.baseline = {hadronic_spec.baseline!r} is not in the "
-            f"repository catalog. Choose one of: {choices}."
-        )
-
-    quark = _require_table(root["quark_eos"], "quark_eos")
-    _require_exact_keys(
-        quark,
-        {
-            "model",
-            "bag_constant_mev_fm3",
-            "pairing_gap_mev",
-            "strange_quark_mass_mev",
-        },
-        "quark_eos",
-    )
-    quark_spec = QuarkEosSpec(
-        model=_string(quark["model"], "quark_eos.model"),
-        bag_constant_mev_fm3=_decimal(
-            quark["bag_constant_mev_fm3"],
-            "quark_eos.bag_constant_mev_fm3",
-        ),
-        pairing_gap_mev=_decimal(quark["pairing_gap_mev"], "quark_eos.pairing_gap_mev"),
-        strange_quark_mass_mev=_decimal(
-            quark["strange_quark_mass_mev"],
-            "quark_eos.strange_quark_mass_mev",
-        ),
-    )
-    if quark_spec.model != "cfl_mit_bag":
-        raise ConfigurationError(
-            "quark_eos.model must be 'cfl_mit_bag'; other quark models are not "
-            "implemented by the controlled framework."
-        )
-    if quark_spec.bag_constant_mev_fm3 <= 0:
-        raise ConfigurationError(
-            "quark_eos.bag_constant_mev_fm3 must be strictly positive."
-        )
-    if quark_spec.pairing_gap_mev <= 0:
-        raise ConfigurationError("quark_eos.pairing_gap_mev must be strictly positive.")
-    if quark_spec.strange_quark_mass_mev < 0:
-        raise ConfigurationError(
-            "quark_eos.strange_quark_mass_mev must be non-negative."
-        )
-
-    deformation = _require_table(root["deformation"], "deformation")
-    _require_exact_keys(
-        deformation,
-        {
-            "method",
-            "center_energy_density_mev_fm3",
-            "width_mev_fm3",
-            "amplitude_start",
-            "amplitude_stop",
-            "amplitude_step",
-        },
-        "deformation",
-    )
-    deformation_spec = DeformationSpec(
-        method=_string(deformation["method"], "deformation.method"),
-        center_energy_density_mev_fm3=_decimal(
-            deformation["center_energy_density_mev_fm3"],
-            "deformation.center_energy_density_mev_fm3",
-        ),
-        width_mev_fm3=_decimal(
-            deformation["width_mev_fm3"], "deformation.width_mev_fm3"
-        ),
-        amplitude_start=_decimal(
-            deformation["amplitude_start"], "deformation.amplitude_start"
-        ),
-        amplitude_stop=_decimal(
-            deformation["amplitude_stop"], "deformation.amplitude_stop"
-        ),
-        amplitude_step=_decimal(
-            deformation["amplitude_step"], "deformation.amplitude_step"
-        ),
-    )
-    if deformation_spec.method != "additive_gaussian_sound_speed":
-        raise ConfigurationError(
-            "deformation.method must be 'additive_gaussian_sound_speed'."
-        )
-    if deformation_spec.center_energy_density_mev_fm3 <= 0:
-        raise ConfigurationError(
-            "deformation.center_energy_density_mev_fm3 must be strictly positive."
-        )
-    if deformation_spec.width_mev_fm3 <= 0:
-        raise ConfigurationError("deformation.width_mev_fm3 must be strictly positive.")
-    # Evaluate now so invalid grids fail during loading, not during execution.
-    deformation_spec.amplitudes
-
-    screens = _require_table(root["physical_requirements"], "physical_requirements")
-    _require_exact_keys(
-        screens,
-        {
-            "minimum_maximum_mass_msun",
-            "maximum_maximum_mass_msun",
-            "radius_1p4_min_km",
-            "radius_1p4_max_km",
-        },
-        "physical_requirements",
-    )
-    screen_spec = PhysicalRequirementsSpec(
-        minimum_maximum_mass_msun=_decimal(
-            screens["minimum_maximum_mass_msun"],
-            "physical_requirements.minimum_maximum_mass_msun",
-        ),
-        maximum_maximum_mass_msun=_decimal(
-            screens["maximum_maximum_mass_msun"],
-            "physical_requirements.maximum_maximum_mass_msun",
-        ),
-        radius_1p4_min_km=_decimal(
-            screens["radius_1p4_min_km"],
-            "physical_requirements.radius_1p4_min_km",
-        ),
-        radius_1p4_max_km=_decimal(
-            screens["radius_1p4_max_km"],
-            "physical_requirements.radius_1p4_max_km",
-        ),
-    )
-    if screen_spec.minimum_maximum_mass_msun <= 0:
-        raise ConfigurationError(
-            "physical_requirements.minimum_maximum_mass_msun must be positive."
-        )
-    if screen_spec.maximum_maximum_mass_msun <= screen_spec.minimum_maximum_mass_msun:
-        raise ConfigurationError(
-            "physical_requirements.maximum_maximum_mass_msun must exceed the "
-            "minimum maximum mass."
-        )
-    if screen_spec.radius_1p4_min_km <= 0:
-        raise ConfigurationError(
-            "physical_requirements.radius_1p4_min_km must be positive."
-        )
-    if screen_spec.radius_1p4_max_km <= screen_spec.radius_1p4_min_km:
-        raise ConfigurationError(
-            "physical_requirements.radius_1p4_max_km must exceed radius_1p4_min_km."
-        )
-
-    numerical = _require_table(root["numerical_settings"], "numerical_settings")
-    _require_exact_keys(
-        numerical, {"preset", "convergence_check"}, "numerical_settings"
-    )
-    numerical_spec = NumericalSettingsSpec(
-        preset=_string(numerical["preset"], "numerical_settings.preset"),
-        convergence_check=_string(
-            numerical["convergence_check"],
-            "numerical_settings.convergence_check",
-        ),
-    )
-    if numerical_spec.preset not in {"production", "smoke"}:
-        raise ConfigurationError(
-            "numerical_settings.preset must be 'production' or 'smoke'."
-        )
-    if numerical_spec.convergence_check not in {"endpoints_and_zero", "none"}:
-        raise ConfigurationError(
-            "numerical_settings.convergence_check must be 'endpoints_and_zero' "
-            "or 'none'."
-        )
-    if mode == REPRODUCTION_MODE and numerical_spec.preset != "production":
-        raise ConfigurationError(
-            "Reproduction mode requires numerical_settings.preset = 'production'."
-        )
-
-    execution = _require_table(root["execution"], "execution")
-    _require_exact_keys(
-        execution,
-        {"random_seed", "parallel_jobs", "amplitudes_per_batch"},
-        "execution",
-    )
-    execution_spec = ExecutionSpec(
-        random_seed=_integer(execution["random_seed"], "execution.random_seed"),
-        parallel_jobs=_integer(execution["parallel_jobs"], "execution.parallel_jobs"),
-        amplitudes_per_batch=_integer(
-            execution["amplitudes_per_batch"], "execution.amplitudes_per_batch"
-        ),
-    )
-    if execution_spec.random_seed < 0:
-        raise ConfigurationError("execution.random_seed must be non-negative.")
-    if execution_spec.parallel_jobs < 1:
-        raise ConfigurationError("execution.parallel_jobs must be at least 1.")
-    if execution_spec.amplitudes_per_batch < 1:
-        raise ConfigurationError("execution.amplitudes_per_batch must be at least 1.")
-
-    specification = PairExperimentSpec(
-        schema_version=schema_version,
-        experiment_name=name,
-        workflow=workflow,
-        mode=mode,
-        hadronic_eos=hadronic_spec,
-        quark_eos=quark_spec,
-        deformation=deformation_spec,
-        physical_requirements=screen_spec,
-        numerical_settings=numerical_spec,
-        execution=execution_spec,
-    )
-    if mode == REPRODUCTION_MODE:
-        _validate_reproduction_lock(specification)
-    return specification
 
 
 def _validate_reproduction_lock(specification: PairExperimentSpec) -> None:
-    expected = {
-        "hadronic_eos.baseline": "APR-1",
-        "quark_eos.model": "cfl_mit_bag",
-        "quark_eos.bag_constant_mev_fm3": Decimal("60"),
-        "quark_eos.pairing_gap_mev": Decimal("100"),
-        "quark_eos.strange_quark_mass_mev": Decimal("150"),
-        "deformation.method": "additive_gaussian_sound_speed",
-        "deformation.center_energy_density_mev_fm3": Decimal("220"),
-        "deformation.width_mev_fm3": Decimal("50"),
-        "deformation.amplitude_start": Decimal("-0.05"),
-        "deformation.amplitude_stop": Decimal("0.09"),
-        "deformation.amplitude_step": Decimal("0.01"),
-        "physical_requirements.minimum_maximum_mass_msun": Decimal("2.08"),
-        "physical_requirements.maximum_maximum_mass_msun": Decimal("3.0"),
-        "physical_requirements.radius_1p4_min_km": Decimal("9.5"),
-        "physical_requirements.radius_1p4_max_km": Decimal("14.5"),
-        "numerical_settings.preset": "production",
-        "numerical_settings.convergence_check": "endpoints_and_zero",
-        "execution.random_seed": 20260804,
-    }
-    actual = {
-        "hadronic_eos.baseline": specification.hadronic_eos.baseline,
-        "quark_eos.model": specification.quark_eos.model,
-        "quark_eos.bag_constant_mev_fm3": (
-            specification.quark_eos.bag_constant_mev_fm3
-        ),
-        "quark_eos.pairing_gap_mev": specification.quark_eos.pairing_gap_mev,
-        "quark_eos.strange_quark_mass_mev": (
-            specification.quark_eos.strange_quark_mass_mev
-        ),
-        "deformation.method": specification.deformation.method,
-        "deformation.center_energy_density_mev_fm3": (
-            specification.deformation.center_energy_density_mev_fm3
-        ),
-        "deformation.width_mev_fm3": specification.deformation.width_mev_fm3,
-        "deformation.amplitude_start": specification.deformation.amplitude_start,
-        "deformation.amplitude_stop": specification.deformation.amplitude_stop,
-        "deformation.amplitude_step": specification.deformation.amplitude_step,
-        "physical_requirements.minimum_maximum_mass_msun": (
-            specification.physical_requirements.minimum_maximum_mass_msun
-        ),
-        "physical_requirements.maximum_maximum_mass_msun": (
-            specification.physical_requirements.maximum_maximum_mass_msun
-        ),
-        "physical_requirements.radius_1p4_min_km": (
-            specification.physical_requirements.radius_1p4_min_km
-        ),
-        "physical_requirements.radius_1p4_max_km": (
-            specification.physical_requirements.radius_1p4_max_km
-        ),
-        "numerical_settings.preset": specification.numerical_settings.preset,
-        "numerical_settings.convergence_check": (
-            specification.numerical_settings.convergence_check
-        ),
-        "execution.random_seed": specification.execution.random_seed,
-    }
-    for field, required in expected.items():
-        if actual[field] != required:
-            display = (
-                _decimal_text(required) if isinstance(required, Decimal) else required
-            )
-            raise ConfigurationError(
-                f"{field} = {actual[field]!s} is not permitted in reproduction "
-                f"mode; the documented value is {display}. Use mode = "
-                "'exploration' for a different sensitivity experiment."
-            )
+    _validate_reproduction_lock_impl(specification)
 
 
 def _parse_family(root: Mapping[str, Any]) -> FamilyClassificationSpec:
