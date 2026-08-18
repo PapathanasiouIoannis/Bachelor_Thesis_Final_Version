@@ -81,6 +81,39 @@ def _valid_stellar_curve() -> list[list[float]]:
     ]
 
 
+def _runtime_configuration(convergence_check: str = "none") -> dict:
+    return {
+        "deformation": {
+            "center_energy_density_mev_fm3": 220.0,
+            "width_mev_fm3": 50.0,
+        },
+        "hadronic_eos": {"baseline": "APR-1"},
+        "quark_eos": {
+            "bag_constant_mev_fm3": 60.0,
+            "pairing_gap_mev": 100.0,
+            "strange_quark_mass_mev": 150.0,
+        },
+        "physical_requirements": {
+            "minimum_maximum_mass_msun": 2.08,
+            "maximum_maximum_mass_msun": 3.2,
+            "radius_1p4_min_km": 9.0,
+            "radius_1p4_max_km": 15.0,
+        },
+        "execution": {
+            "random_seed": 20260804,
+            "parallel_jobs": 1,
+            "amplitudes_per_batch": 3,
+        },
+        "resolved_numerical_settings": {
+            "eos_grid_points": 5000,
+            "central_pressure_points": 80,
+            "tov_relative_tolerance": 1.0e-7,
+            "tov_absolute_tolerance": 1.0e-9,
+        },
+        "numerical_settings": {"convergence_check": convergence_check},
+    }
+
+
 def test_reporting_module_exposes_its_intentional_api():
     assert all(hasattr(experiment_reporting, name) for name in REPORTING_API_NAMES)
 
@@ -100,6 +133,36 @@ def test_reporting_facade_reexports_plot_function_by_identity():
         experiment_reporting.create_standard_plots
         is reporting_plots.create_standard_plots
     )
+
+
+def test_markdown_facade_resolves_the_current_causal_builder(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_builder(eos_tables):
+        calls.append(eos_tables)
+        return pd.DataFrame({"sweep_id": ["patched-causal-record"]})
+
+    monkeypatch.setattr(
+        experiment_reporting,
+        "build_causal_domain_table",
+        fake_builder,
+    )
+    eos_tables = pd.DataFrame(columns=EOS_COLUMNS)
+    output_path = tmp_path / "patched-report.md"
+
+    experiment_reporting.write_markdown_report(
+        eos_tables,
+        pd.DataFrame(columns=SUMMARY_COLUMNS),
+        pd.DataFrame(),
+        pd.DataFrame(),
+        _runtime_configuration(),
+        output_path,
+        run_status="completed",
+    )
+
+    assert len(calls) == 1
+    assert calls[0] is eos_tables
+    assert "patched-causal-record" in output_path.read_text(encoding="utf-8")
 
 
 def test_summary_facade_resolves_the_current_summarizer(monkeypatch):
@@ -439,36 +502,7 @@ def test_markdown_report_preserves_semantic_sections_and_empty_run_branches(
             }
         ]
     )
-    runtime = {
-        "deformation": {
-            "center_energy_density_mev_fm3": 220.0,
-            "width_mev_fm3": 50.0,
-        },
-        "hadronic_eos": {"baseline": "APR-1"},
-        "quark_eos": {
-            "bag_constant_mev_fm3": 60.0,
-            "pairing_gap_mev": 100.0,
-            "strange_quark_mass_mev": 150.0,
-        },
-        "physical_requirements": {
-            "minimum_maximum_mass_msun": 2.08,
-            "maximum_maximum_mass_msun": 3.2,
-            "radius_1p4_min_km": 9.0,
-            "radius_1p4_max_km": 15.0,
-        },
-        "execution": {
-            "random_seed": 20260804,
-            "parallel_jobs": 1,
-            "amplitudes_per_batch": 3,
-        },
-        "resolved_numerical_settings": {
-            "eos_grid_points": 5000,
-            "central_pressure_points": 80,
-            "tov_relative_tolerance": 1.0e-7,
-            "tov_absolute_tolerance": 1.0e-9,
-        },
-        "numerical_settings": {"convergence_check": convergence_check},
-    }
+    runtime = _runtime_configuration(convergence_check)
     output_path = tmp_path / "report.md"
 
     write_markdown_report(
