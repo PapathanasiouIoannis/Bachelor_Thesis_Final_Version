@@ -168,7 +168,13 @@ def test_development_forwards_exact_five_commands_and_subprocess_contract(
 ):
     paths = _paths(tmp_path)
     post_status = _allow_development(monkeypatch)
+    original_planner = workflow._development_commands
+    planner_calls = []
     calls = []
+
+    def plan(value, **options):
+        planner_calls.append((value, options))
+        return original_planner(value, **options)
 
     def run(command, **kwargs):
         calls.append((command, kwargs))
@@ -178,6 +184,7 @@ def test_development_forwards_exact_five_commands_and_subprocess_contract(
             stderr="ignored success stderr",
         )
 
+    monkeypatch.setattr(workflow, "_development_commands", plan)
     monkeypatch.setattr(workflow.subprocess, "run", run)
 
     result = workflow.run_family_development(
@@ -194,6 +201,16 @@ def test_development_forwards_exact_five_commands_and_subprocess_contract(
         permutations=17,
     )
     assert [command for command, _ in calls] == [command for _, command in expected]
+    assert planner_calls == [
+        (
+            paths,
+            {
+                "jobs": 3,
+                "force_regenerate": True,
+                "permutations": 17,
+            },
+        )
+    ]
     assert [stage for stage, _ in expected] == list(STAGES)
     assert all(
         kwargs
