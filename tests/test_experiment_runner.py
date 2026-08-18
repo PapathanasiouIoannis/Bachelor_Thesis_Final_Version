@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 from joblib import Parallel, delayed
 
+from framework.eos_catalog import CFL_CATALOG, HADRONIC_CATALOG
 from src.physics import experiment_runner
 from src.physics.experiment_reporting import EOS_COLUMNS, STELLAR_COLUMNS
 from src.physics.experiment_runner import (
@@ -49,6 +50,17 @@ def test_reproduction_preflight_reports_exact_pair_and_intervals():
     assert (
         report["baseline_recovery_maximum_relative_pressure_error"]["hadronic"] < 2e-4
     )
+    recovery = report["baseline_recovery_maximum_relative_pressure_error"]
+    assert 4.0e-5 < recovery["hadronic"] < 5.0e-5
+    assert 1.0e-10 < recovery["quark"] < 1.0e-9
+    assert report["provenance"] == {
+        "hadronic": next(
+            entry.as_row() for entry in HADRONIC_CATALOG if entry.eos_id == "APR-1"
+        ),
+        "quark": next(
+            entry.as_row() for entry in CFL_CATALOG if entry.eos_id == "CFL4"
+        ),
+    }
 
 
 def test_preflight_out_of_range_error_names_parameter_and_boundary(tmp_path: Path):
