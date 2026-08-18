@@ -6,7 +6,6 @@ test remains owned by ``family_final_test.py`` and is never launched from here.
 
 from __future__ import annotations
 
-import hashlib
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -140,14 +139,6 @@ def _load_profiles(paths: FamilyWorkflowPaths) -> tuple[dict, dict, dict]:
 
 def _read_json_status(path: Path) -> tuple[dict[str, Any] | None, str | None]:
     return _evidence.read_json_status(path)
-
-
-def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _file_matches_sha256(path: Path, expected_hash: str) -> bool:
