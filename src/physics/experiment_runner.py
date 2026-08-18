@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import traceback
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -51,15 +50,13 @@ from src.physics.experiment_reporting import (
     validate_eos_frame,
     write_markdown_report,
 )
+from src.physics.runner import preflight as _preflight
+from src.physics.runner import settings as _settings
 from src.utils.logger import close_run_log, configure_run_log, get_logger
 
 
 LOGGER = get_logger("EOSLAB")
-PAIR_INTERPRETATION = (
-    "Controlled sensitivity comparison between one repository hadronic surrogate "
-    "and one analytic CFL MIT-bag equation of state. This is not universal "
-    "matter-phase classification."
-)
+PAIR_INTERPRETATION = _preflight.PAIR_INTERPRETATION
 REJECTION_COLUMNS = (
     "sweep_id",
     "deformation_amplitude",
@@ -84,65 +81,27 @@ CONVERGENCE_COLUMNS = (
     "passed",
 )
 
-NUMERICAL_PRESETS = {
-    "production": {
-        "eos_grid_points": int(CONFIG["P_GRID_POINTS"]),
-        "central_pressure_points": int(CONFIG["SOLVER_N_POINTS"]),
-        "tov_relative_tolerance": float(CONFIG["TOV_RTOL"]),
-        "tov_absolute_tolerance": float(CONFIG["TOV_ATOL"]),
-    },
-    "smoke": {
-        "eos_grid_points": 5000,
-        "central_pressure_points": 80,
-        "tov_relative_tolerance": 1.0e-7,
-        "tov_absolute_tolerance": 1.0e-9,
-    },
-}
+NUMERICAL_PRESETS = _settings.numerical_presets_from_configuration(CONFIG)
+PairPreflight = _preflight.PairPreflight
 
 
-@dataclass(frozen=True)
-class PairPreflight:
-    resolved: ResolvedExperiment
-    runtime_configuration: dict[str, Any]
-    sweep_points: tuple[SweepPoint, ...]
-    hadronic_interval: tuple[float, float]
-    quark_interval: tuple[float, float]
-    common_interval: tuple[float, float]
-    provenance: dict[str, Any]
-    baseline_recovery: dict[str, float]
+def _preflight_report_numerical_settings(
+    runtime: dict[str, Any],
+) -> dict[str, int | float]:
+    return _resolved_numerical_settings(runtime)
 
-    def to_dict(self) -> dict[str, Any]:
-        configuration = self.runtime_configuration
-        return {
-            "experiment_name": configuration["experiment_name"],
-            "workflow": configuration["workflow"],
-            "mode": configuration["mode"],
-            "configuration_hash": self.resolved.config_hash,
-            "hadronic_eos": configuration["hadronic_eos"],
-            "quark_eos": {
-                **configuration["quark_eos"],
-                "catalog_identifier": self.resolved.quark_eos_id,
-            },
-            "deformation": {
-                **configuration["deformation"],
-                "amplitudes": [point.amplitude for point in self.sweep_points],
-            },
-            "physical_requirements": configuration["physical_requirements"],
-            "numerical_settings": configuration["numerical_settings"],
-            "resolved_numerical_settings": _resolved_numerical_settings(configuration),
-            "execution": configuration["execution"],
-            "admissible_amplitude_intervals": {
-                "hadronic": list(self.hadronic_interval),
-                "quark": list(self.quark_interval),
-                "common": list(self.common_interval),
-                "lower_endpoint_is_open": True,
-            },
-            "baseline_recovery_maximum_relative_pressure_error": self.baseline_recovery,
-            "expected_curves": 2 * len(self.sweep_points),
-            "classification_enabled": False,
-            "permitted_scientific_interpretation": PAIR_INTERPRETATION,
-            "provenance": self.provenance,
-        }
+
+def _preflight_report_interpretation() -> str:
+    return PAIR_INTERPRETATION
+
+
+def _sync_preflight_facade() -> None:
+    _settings.NUMERICAL_PRESETS = NUMERICAL_PRESETS
+    _preflight.REPORT_NUMERICAL_SETTINGS = _preflight_report_numerical_settings
+    _preflight.REPORT_PAIR_INTERPRETATION = _preflight_report_interpretation
+
+
+_sync_preflight_facade()
 
 
 class PairGenerationError(RuntimeError):
@@ -152,81 +111,32 @@ class PairGenerationError(RuntimeError):
         super().__init__(reason)
 
 
+def _preflight_validation_dependencies() -> _preflight.ValidationDependencies:
+    return _preflight.ValidationDependencies(
+        resolve_pair_experiment=resolve_pair_experiment,
+        resolved_experiment_type=ResolvedExperiment,
+        sweep_point_type=SweepPoint,
+        pair_preflight_type=PairPreflight,
+        quark_parameters=_quark_parameters,
+        resolved_numerical_settings=_resolved_numerical_settings,
+        hadronic_baseline_grids=hadronic_baseline_grids,
+        cfl_baseline_grids=cfl_baseline_grids,
+        admissible_amplitude_interval=admissible_amplitude_interval,
+        validate_sweep_within_interval=validate_sweep_within_interval,
+        baseline_recovery_errors=_baseline_recovery_errors,
+        provenance=_provenance,
+    )
+
+
 def validate_pair_experiment(
     configuration: ResolvedExperiment | str | Path,
 ) -> PairPreflight:
     """Validate a profile and its common causal amplitude support without TOV runs."""
 
-    resolved = (
-        configuration
-        if isinstance(configuration, ResolvedExperiment)
-        else resolve_pair_experiment(configuration)
-    )
-    runtime = resolved.to_runtime_dict()
-    hadronic_name = str(runtime["hadronic_eos"]["baseline"])
-    quark_parameters = _quark_parameters(runtime)
-    deformation = runtime["deformation"]
-    numerical = _resolved_numerical_settings(runtime)
-    center = float(deformation["center_energy_density_mev_fm3"])
-    width = float(deformation["width_mev_fm3"])
-    points = tuple(
-        SweepPoint(index=index, amplitude=float(amplitude))
-        for index, amplitude in enumerate(runtime["resolved"]["amplitudes"])
-    )
-
-    hadronic_energy, hadronic_sound_speed, _, _, _ = hadronic_baseline_grids(
-        hadronic_name, numerical["eos_grid_points"]
-    )
-    hadronic_interval = admissible_amplitude_interval(
-        hadronic_energy, hadronic_sound_speed, center, width
-    )
-    _, quark_energy, quark_sound_speed, _ = cfl_baseline_grids(
-        quark_parameters, numerical["eos_grid_points"]
-    )
-    quark_interval = admissible_amplitude_interval(
-        quark_energy, quark_sound_speed, center, width
-    )
-    common_interval = (
-        max(hadronic_interval[0], quark_interval[0]),
-        min(hadronic_interval[1], quark_interval[1]),
-    )
-    try:
-        validate_sweep_within_interval(points, common_interval, "Common pair")
-    except ValueError as error:
-        start = points[0].amplitude
-        stop = points[-1].amplitude
-        lower, upper = common_interval
-        if start <= lower:
-            advice = (
-                f"amplitude_start = {start:g} is not above the common permitted "
-                f"lower boundary {lower:.6g}. Choose a larger value."
-            )
-        elif stop > upper:
-            advice = (
-                f"amplitude_stop = {stop:g} exceeds the common permitted maximum "
-                f"of {upper:.6g}. Choose a smaller value."
-            )
-        else:
-            advice = str(error)
-        raise ValueError(advice) from error
-
-    recovery = _baseline_recovery_errors(runtime)
-    for matter_type, error in recovery.items():
-        if error > 2.0e-4:
-            raise ValueError(
-                f"A = 0 {matter_type} maximum relative pressure-recovery error "
-                f"is {error:.6g}, "
-                "above the permitted maximum relative tolerance 0.0002."
-            )
-    return PairPreflight(
-        resolved=resolved,
-        runtime_configuration=runtime,
-        sweep_points=points,
-        hadronic_interval=hadronic_interval,
-        quark_interval=quark_interval,
-        common_interval=common_interval,
-        provenance=_provenance(runtime, resolved.quark_eos_id),
-        baseline_recovery=recovery,
+    _sync_preflight_facade()
+    return _preflight.validate_pair_experiment(
+        configuration,
+        _preflight_validation_dependencies(),
     )
 
 
@@ -793,87 +703,41 @@ def _physical_requirements_status(
 
 
 def _baseline_recovery_errors(runtime: dict[str, Any]) -> dict[str, float]:
-    deformation = runtime["deformation"]
-    grid_points = int(_resolved_numerical_settings(runtime)["eos_grid_points"])
-    zero = GaussianDeformation(
-        amplitude=0.0,
-        epsilon0=float(deformation["center_energy_density_mev_fm3"]),
-        sigma=float(deformation["width_mev_fm3"]),
+    return _preflight.baseline_recovery_errors(
+        runtime,
+        _preflight.BaselineRecoveryDependencies(
+            resolved_numerical_settings=_resolved_numerical_settings,
+            hadronic_baseline_grids=hadronic_baseline_grids,
+            build_hadronic_eos=build_hadronic_eos,
+            quark_parameters=_quark_parameters,
+            cfl_baseline_grids=cfl_baseline_grids,
+            build_quark_eos=build_quark_eos,
+            gaussian_deformation=GaussianDeformation,
+            maximum_relative_pressure_error=_maximum_relative_pressure_error,
+            configuration=CONFIG,
+        ),
     )
-    name = runtime["hadronic_eos"]["baseline"]
-    _, _, _, transition, _ = hadronic_baseline_grids(name, grid_points)
-    hadronic = build_hadronic_eos(name, zero, grid_points=grid_points)
-    baseline_hadronic_pressure = np.linspace(
-        transition, CONFIG["P_GRID_MAX"], grid_points
-    )[: len(hadronic.pressure)]
-    hadronic_error = _maximum_relative_pressure_error(
-        hadronic.pressure, baseline_hadronic_pressure
-    )
-
-    quark_parameters = _quark_parameters(runtime)
-    baseline_quark_pressure, _, _, _ = cfl_baseline_grids(quark_parameters, grid_points)
-    quark = build_quark_eos(
-        quark_parameters,
-        zero,
-        maximum_surface_energy_per_baryon=CONFIG["M_N"],
-        grid_points=grid_points,
-    )
-    quark_error = _maximum_relative_pressure_error(
-        quark.pressure, baseline_quark_pressure[: len(quark.pressure)]
-    )
-    return {"hadronic": hadronic_error, "quark": quark_error}
 
 
 def _maximum_relative_pressure_error(reconstructed, baseline) -> float:
-    reconstructed = np.asarray(reconstructed, dtype=float)
-    baseline = np.asarray(baseline, dtype=float)
-    if reconstructed.shape != baseline.shape or len(baseline) < 5:
-        raise ValueError("A = 0 pressure recovery grids are not aligned.")
-    denominator = np.maximum(np.abs(baseline), 1.0e-12)
-    relative_error = np.abs(reconstructed - baseline) / denominator
-    return float(np.max(relative_error))
+    return _preflight.maximum_relative_pressure_error(reconstructed, baseline)
 
 
 def _quark_parameters(runtime: dict[str, Any]) -> QuarkParameters:
-    quark = runtime["quark_eos"]
-    return QuarkParameters(
-        bag_b=float(quark["bag_constant_mev_fm3"]),
-        gap_delta=float(quark["pairing_gap_mev"]),
-        strange_mass=float(quark["strange_quark_mass_mev"]),
-    )
+    return _settings.quark_parameters(runtime, QuarkParameters)
 
 
 def _resolved_numerical_settings(runtime: dict[str, Any]) -> dict[str, int | float]:
-    preset = str(runtime["numerical_settings"]["preset"])
-    try:
-        return dict(NUMERICAL_PRESETS[preset])
-    except KeyError as error:
-        raise ValueError(f"Unknown numerical preset: {preset!r}.") from error
+    return _settings.resolved_numerical_settings(runtime, NUMERICAL_PRESETS)
 
 
 def _provenance(runtime: dict[str, Any], quark_eos_id: str) -> dict[str, Any]:
-    hadronic_name = runtime["hadronic_eos"]["baseline"]
-    hadronic = next(
-        entry for entry in HADRONIC_CATALOG if entry.eos_id == hadronic_name
+    return _preflight.provenance(
+        runtime,
+        quark_eos_id,
+        HADRONIC_CATALOG,
+        CFL_CATALOG,
     )
-    quark_match = next(
-        (entry for entry in CFL_CATALOG if entry.eos_id == quark_eos_id), None
-    )
-    return {
-        "hadronic": hadronic.as_row(),
-        "quark": (
-            quark_match.as_row()
-            if quark_match is not None
-            else {
-                "eos_id": quark_eos_id,
-                "model_family": "analytic CFL MIT-bag",
-                "provenance_note": (
-                    "Exploratory custom parameter tuple; the tuple itself is not a "
-                    "named benchmark in the repository literature catalog."
-                ),
-            }
-        ),
-    }
 
 
 def _concat_frames(frames: list[pd.DataFrame], columns) -> pd.DataFrame:
