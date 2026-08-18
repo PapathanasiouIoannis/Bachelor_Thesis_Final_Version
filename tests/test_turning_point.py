@@ -1,11 +1,13 @@
 import numpy as np
 import pytest
 
+from src.physics import solve_sequence as sequence_module
 from src.physics.solve_sequence import (
     TurningPointError,
     _extract_first_turning_point,
     solve_sequence,
 )
+from src.physics.stellar import turning_point
 
 
 def _curve(masses, pressures=None):
@@ -14,6 +16,16 @@ def _curve(masses, pressures=None):
         [mass, 12.0, 100.0, pressure, 300.0, 0.3, 0.0]
         for mass, pressure in zip(masses, pressures)
     ]
+
+
+def test_legacy_module_reexports_turning_point_objects_by_identity():
+    assert sequence_module.TurningPointError is turning_point.TurningPointError
+    assert (
+        sequence_module._extract_first_turning_point
+        is turning_point._extract_first_turning_point
+    )
+    assert sequence_module._MASS_NOISE_RTOL is turning_point._MASS_NOISE_RTOL
+    assert sequence_module._MASS_NOISE_ATOL is turning_point._MASS_NOISE_ATOL
 
 
 def test_extracts_branch_through_first_resolved_mass_peak():
