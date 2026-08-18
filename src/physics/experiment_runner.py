@@ -1,4 +1,4 @@
-"""Validated execution of one controlled hadronic/CFL sensitivity experiment."""
+"""Compatibility and lifecycle facade for controlled pair experiments."""
 
 from __future__ import annotations
 

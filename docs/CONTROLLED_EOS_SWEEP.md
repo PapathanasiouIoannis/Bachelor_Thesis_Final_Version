@@ -30,8 +30,10 @@ $A=0$ control. For every amplitude, the supported launcher attempts exactly
 one hadronic EoS and one quark EoS with the same sweep identifier; only an
 accepted pair proceeds to stellar-curve reporting. User-facing values live in
 `configs/apr1_cfl4_reproduction.toml`. The strict loader resolves them and
-`src/physics/experiment_runner.py` passes them explicitly to the common
-scientific implementation in `framework/eos_sweep.py`.
+`src/physics/experiment_runner.py` validates the resolved controls and injects
+them into focused modules under `src/physics/runner/`.
+`src/physics/runner/generation.py` delegates scientific EoS construction to the
+common implementation in `framework/eos_sweep.py`.
 
 The older `worker_hadronic_gen.py` and `worker_quark_gen.py` entry points remain
 for compatibility with thesis-era scripts. They read mirrored defaults from

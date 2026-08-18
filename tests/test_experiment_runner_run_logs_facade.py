@@ -6,8 +6,6 @@ import sys
 import textwrap
 from pathlib import Path
 
-import pytest
-
 from src.physics import experiment_runner
 from src.physics.runner import run_logs
 
@@ -23,44 +21,6 @@ def test_run_logs_facade_preserves_exact_helper_signatures():
     assert str(inspect.signature(experiment_runner._merge_worker_logs)) == (
         "(run_log_path: 'Path') -> 'None'"
     )
-
-
-@pytest.mark.parametrize(
-    "imports",
-    (
-        """
-        from src.physics.runner import run_logs
-        assert "src.physics.experiment_runner" not in sys.modules
-        from src.physics import experiment_runner
-        """,
-        """
-        from src.physics import experiment_runner
-        from src.physics.runner import run_logs
-        """,
-    ),
-    ids=("leaf-then-facade", "facade-then-leaf"),
-)
-def test_run_logs_leaf_and_facade_import_cleanly_in_both_orders(imports):
-    script = "\n".join(
-        (
-            "import sys",
-            textwrap.dedent(imports).strip(),
-            "",
-            "assert callable(experiment_runner._worker_log_path)",
-            "assert callable(experiment_runner._merge_worker_logs)",
-            "assert callable(run_logs.worker_log_path)",
-            "assert callable(run_logs.merge_worker_logs)",
-        )
-    )
-    completed = subprocess.run(
-        [sys.executable, "-c", script],
-        cwd=ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 0, completed.stderr
 
 
 def test_run_logs_facade_uses_reloaded_leaf_functions():

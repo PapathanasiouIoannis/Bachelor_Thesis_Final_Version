@@ -169,4 +169,6 @@ Further scientific provenance and limitations are documented in the
 [EoS feasibility audit](docs/EOS_FEASIBILITY_AUDIT.md), and
 [classification risk audit](docs/CLASSIFICATION_RISK_AUDIT.md). Repository
 support levels, artifact categories, and the required change discipline are
-defined in [Maintenance boundaries](docs/MAINTENANCE_BOUNDARIES.md).
+defined in [Maintenance boundaries](docs/MAINTENANCE_BOUNDARIES.md). The
+[controlled runner architecture](docs/RUNNER_ARCHITECTURE.md) records the
+facade/leaf ownership, process boundary, and durable lifecycle invariants.

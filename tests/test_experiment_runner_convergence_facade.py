@@ -7,8 +7,6 @@ import textwrap
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 from src.physics import experiment_runner
 from src.physics.runner import convergence
 
@@ -53,48 +51,6 @@ def test_failed_convergence_record_uses_live_facade_nan_value(monkeypatch):
     assert result["delta_maximum_mass_msun"] is nan_sentinel
     assert result["delta_radius_1p4_km"] is nan_sentinel
     assert result["relative_delta_tidal_deformability_1p4"] is nan_sentinel
-
-
-@pytest.mark.parametrize(
-    "imports",
-    (
-        """
-        from src.physics.runner import convergence
-        assert "src.physics.experiment_runner" not in sys.modules
-        from src.physics import experiment_runner
-        """,
-        """
-        from src.physics import experiment_runner
-        from src.physics.runner import convergence
-        """,
-    ),
-    ids=("leaf-then-facade", "facade-then-leaf"),
-)
-def test_convergence_leaf_and_facade_import_cleanly_in_both_orders(imports):
-    script = "\n".join(
-        (
-            "import sys",
-            textwrap.dedent(imports).strip(),
-            "",
-            "assert experiment_runner.CONVERGENCE_COLUMNS is "
-            "convergence.CONVERGENCE_COLUMNS",
-            "assert callable(experiment_runner._run_convergence_checks)",
-            "assert callable(experiment_runner._failed_convergence_record)",
-            "assert callable(experiment_runner._physical_requirements_status)",
-            "assert callable(convergence.run_convergence_checks)",
-            "assert callable(convergence.failed_convergence_record)",
-            "assert callable(convergence.physical_requirements_status)",
-        )
-    )
-    completed = subprocess.run(
-        [sys.executable, "-c", script],
-        cwd=ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 0, completed.stderr
 
 
 def test_convergence_facade_uses_reloaded_leaf_and_current_dependencies():

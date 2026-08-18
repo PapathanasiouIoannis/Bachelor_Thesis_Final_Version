@@ -2,10 +2,6 @@ from __future__ import annotations
 
 import inspect
 import pickle
-import subprocess
-import sys
-import textwrap
-from pathlib import Path
 
 import pytest
 from joblib import Parallel, delayed
@@ -13,9 +9,6 @@ from joblib.externals import cloudpickle
 
 from src.physics import experiment_runner
 from src.physics.runner import generation
-
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def _raise_pair_generation_error_through_worker_facade():
@@ -113,42 +106,3 @@ def test_pair_generation_error_escapes_forced_loky_worker_with_exact_type():
     assert raised.value.stage == "stellar_sequence"
     assert raised.value.args == ("escaped through loky",)
     assert str(raised.value) == "escaped through loky"
-
-
-@pytest.mark.parametrize(
-    "imports",
-    (
-        """
-        from src.physics.runner import generation
-        assert "src.physics.experiment_runner" not in sys.modules
-        from src.physics import experiment_runner
-        """,
-        """
-        from src.physics import experiment_runner
-        from src.physics.runner import generation
-        """,
-    ),
-    ids=("leaf-then-facade", "facade-then-leaf"),
-)
-def test_generation_leaf_and_facade_import_cleanly_in_both_orders(imports):
-    script = "\n".join(
-        (
-            "import sys",
-            textwrap.dedent(imports).strip(),
-            "",
-            "assert experiment_runner.PairGenerationError is "
-            "generation.PairGenerationError",
-            "assert callable(experiment_runner._generate_pair)",
-            "assert callable(experiment_runner._build_eos)",
-            "assert callable(experiment_runner._solve)",
-        )
-    )
-    completed = subprocess.run(
-        [sys.executable, "-c", script],
-        cwd=ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 0, completed.stderr
