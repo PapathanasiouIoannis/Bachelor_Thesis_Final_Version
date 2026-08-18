@@ -53,6 +53,17 @@ STELLAR_COLUMNS = (
     "surface_energy_density_mev_fm3",
 )
 
+_STELLAR_NUMERIC_COLUMNS = (
+    "deformation_amplitude",
+    "mass_msun",
+    "radius_km",
+    "tidal_deformability",
+    "central_pressure_mev_fm3",
+    "central_energy_density_mev_fm3",
+    "central_sound_speed_squared",
+    "surface_energy_density_mev_fm3",
+)
+
 SUMMARY_COLUMNS = (
     "matter_type",
     "baseline_name",
@@ -243,7 +254,7 @@ def stellar_curve_to_frame(
     frame = pd.DataFrame.from_records(rows, columns=STELLAR_COLUMNS)
     if frame.empty:
         raise ValueError("The accepted EoS produced no stellar sequence rows.")
-    _require_finite(frame, STELLAR_COLUMNS[4:])
+    _require_finite(frame, _STELLAR_NUMERIC_COLUMNS)
     pressure = frame["central_pressure_mev_fm3"].to_numpy(dtype=float)
     mass = frame["mass_msun"].to_numpy(dtype=float)
     if np.any(np.diff(pressure) <= 0.0):
