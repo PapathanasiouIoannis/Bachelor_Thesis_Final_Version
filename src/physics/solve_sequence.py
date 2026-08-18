@@ -17,6 +17,7 @@ from scipy.integrate import solve_ivp
 from typing import Callable
 
 from src.config import CONFIG
+from src.physics.stellar import integration as _integration
 from src.physics.stellar import pressure_grid as _pressure_grid
 from src.physics.stellar import tidal as _tidal
 from src.physics.stellar.turning_point import (
@@ -110,86 +111,44 @@ def solve_sequence(
         if np.isnan(eps_init) or eps_init < 0:
             continue
 
-        # ==============================================================
-        # 2. INTEGRATION (TOV Solver)
-        # ==============================================================
-        # initial Mass (Approximation for small r_min)
-        m_init = (r_min**3) * eps_init * (_G_CONV / 3.0)
-
-        # state Vector:[Mass, Pressure, y_tidal]
-        y0 = [m_init, pc, 2.0]
+        initial_mass = (r_min**3) * eps_init * (_G_CONV / 3.0)
+        initial_state = [initial_mass, pc, 2.0]
+        integration_context = _integration.IntegrationContext(
+            integrator=solve_ivp,
+            rhs=tov_rhs,
+            surface_event=_surface_event,
+            surface_density_correction=_apply_surface_density_correction,
+            tidal_lambda=_tidal_lambda_from_y,
+            r_min=r_min,
+            r_max=_R_MAX,
+            compactness_conversion=_A_CONV,
+            buchdahl_limit=_BUCHDAHL_LIMIT,
+        )
 
         try:
-            # integrate from r_min out to the boundary where P = 0
-            # note: TOV_R_MAX was increased to 50.0 in const.py so thick crusts aren't truncated
-            sol = solve_ivp(
-                fun=tov_rhs,
-                t_span=(r_min, _R_MAX),
-                y0=y0,
-                args=(eos_callable,),
-                events=_surface_event,
-                method="RK45",
-                dense_output=True,
-                rtol=rtol
-                if rtol is not None
-                else CONFIG["ODE_RTOL"],  # tightened for mathematical rigor
-                atol=atol if atol is not None else CONFIG["ODE_ATOL"],
+            integration_result = _integration.integrate_stellar_model(
+                eos_callable=eos_callable,
+                central_pressure=pc,
+                central_energy_density=eps_init,
+                central_sound_speed_squared=cs2_init,
+                surface_energy_density=eps_surf,
+                initial_state=initial_state,
+                rtol=rtol,
+                atol=atol,
+                configuration=CONFIG,
+                context=integration_context,
             )
+            if integration_result is _integration.IntegrationDecision.STOP:
+                break
+            if integration_result is _integration.IntegrationDecision.SKIP:
+                continue
 
-            # check if the integration successfully hit the surface
-            if sol.status == 1 and len(sol.t_events[0]) > 0:
-                R = sol.t_events[0][0]
-                M = sol.y_events[0][0][0]
-                yR = sol.y_events[0][0][2]
-
-                # boundary Invariant Assertions
-                assert not np.isnan(M) and not np.isnan(R), (
-                    "NaN detected in TOV Mass or Radius!"
-                )
-                assert not np.isinf(M) and not np.isinf(R), (
-                    "Inf detected in TOV Mass or Radius!"
-                )
-                assert M > 0.0, (
-                    f"Unphysical mass detected! M={M} is not strictly positive."
-                )
-                assert R > 0.0, (
-                    f"Unphysical radius detected! R={R} is not strictly positive."
-                )
-
-                # filter unphysical results
-                if R < CONFIG["MIN_RADIUS_CUTOFF"] or M < CONFIG["MIN_MASS_CUTOFF"]:
-                    continue
-
-                # generate dense evaluation grid for the interior profile
-                r_dense = np.linspace(r_min, R, CONFIG["DENSE_PROFILES_POINTS"])
-                y_dense = sol.sol(r_dense)
-                m_dense = y_dense[0]
-
-                # ==============================================================
-                # 3. MACROPHYSICS (Tidal Deformability)
-                # ==============================================================
-                # calculate Compactness
-                C = (M * _A_CONV) / R
-
-                # STRICT BUCHDAHL LIMIT (C < 4/9)
-                if C >= _BUCHDAHL_LIMIT:
-                    continue
-
-                # Surface density jump correction for self-bound stars
-                # (Postnikov et al. 2010, Eq. 6): Delta_yR = G_CONV * R^3 * eps_surf / M
-                yR = _apply_surface_density_correction(yR, R, M, eps_surf)
-
-                # complex Tidal Love Number (k2) formula (Hinderer et al. 2008)
-                Lam = _tidal_lambda_from_y(C, yR)
-                if Lam is None:
-                    continue
-
-                if M <= 0.0:
-                    break
-
-                # record point
-                curve_data.append([M, R, Lam, pc, eps_init, cs2_init, eps_surf])
-                dense_profiles.append((r_dense, m_dense))
+            assert isinstance(
+                integration_result,
+                _integration.IntegratedStellarModel,
+            )
+            curve_data.append(integration_result.curve_row)
+            dense_profiles.append(integration_result.dense_profile)
 
         except (ValueError, RuntimeError, ArithmeticError) as e:
             # trap specific ODE solver integration faults and re-raise them as our domain error
