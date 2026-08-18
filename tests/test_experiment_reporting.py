@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from src.physics import experiment_reporting
+from src.physics.reporting import frames as reporting_frames
 from src.physics.reporting import schemas as reporting_schemas
 from src.physics.experiment_reporting import (
     CAUSAL_DOMAIN_COLUMNS,
@@ -53,6 +54,13 @@ REPORTING_SCHEMA_NAMES = (
     "SUMMARY_HEADINGS",
 )
 
+REPORTING_FRAME_REEXPORTS = (
+    "build_causal_domain_table",
+    "stellar_curve_to_frame",
+    "summarize_stellar_curve",
+    "validate_eos_frame",
+)
+
 
 def _framework_eos() -> SimpleNamespace:
     return SimpleNamespace(
@@ -79,6 +87,44 @@ def test_reporting_module_exposes_its_intentional_api():
 def test_reporting_facade_reexports_schema_objects_by_identity():
     for name in REPORTING_SCHEMA_NAMES:
         assert getattr(experiment_reporting, name) is getattr(reporting_schemas, name)
+
+
+def test_reporting_facade_reexports_pure_frame_functions_by_identity():
+    for name in REPORTING_FRAME_REEXPORTS:
+        assert getattr(experiment_reporting, name) is getattr(reporting_frames, name)
+
+
+def test_summary_facade_resolves_the_current_summarizer(monkeypatch):
+    calls = []
+
+    def fake_summarizer(group):
+        curve_id = str(group["curve_id"].iloc[0])
+        calls.append(curve_id)
+        amplitude = 0.0 if curve_id == "curve-a" else 0.1
+        return {
+            "matter_type": "hadronic",
+            "baseline_name": "APR-1",
+            "sweep_id": curve_id,
+            "deformation_amplitude": amplitude,
+            "maximum_mass_msun": 2.0,
+            "radius_1p4_km": 12.0,
+            "tidal_deformability_1p4": 400.0,
+            "turning_point_stability_estimate": True,
+            "status": "accepted",
+        }
+
+    monkeypatch.setattr(
+        experiment_reporting, "summarize_stellar_curve", fake_summarizer
+    )
+    stellar_curves = pd.DataFrame(
+        {"curve_id": ["curve-b", "curve-a", "curve-b", "curve-a"]}
+    )
+
+    summary = experiment_reporting.build_summary_table(stellar_curves)
+
+    assert calls == ["curve-a", "curve-b"]
+    assert tuple(summary.columns) == SUMMARY_COLUMNS
+    assert summary["sweep_id"].tolist() == ["curve-a", "curve-b"]
 
 
 def test_stellar_curve_serialization_and_summary_happy_path():
