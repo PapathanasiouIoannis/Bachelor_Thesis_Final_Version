@@ -35,8 +35,14 @@ ENV/
 env.bak/
 venv.bak/
 
-# Project-specific Data & Artifacts
-data/
+# Project-specific data and generated artifacts. The final-test marker is an
+# immutable evidence lock, not a reproducible runtime artifact.
+data/*
+!data/family_pilot_v1/
+data/family_pilot_v1/*
+!data/family_pilot_v1/family_ml/
+data/family_pilot_v1/family_ml/*
+!data/family_pilot_v1/family_ml/LOCKED_TEST_OPENED.json
 models/
 outputs/
 outputs_perturb/
