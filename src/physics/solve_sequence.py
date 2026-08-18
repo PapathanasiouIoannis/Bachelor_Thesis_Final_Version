@@ -17,6 +17,7 @@ from scipy.integrate import solve_ivp
 from typing import Callable
 
 from src.config import CONFIG
+from src.physics.stellar import pressure_grid as _pressure_grid
 from src.physics.stellar import tidal as _tidal
 from src.physics.stellar.turning_point import (
     TurningPointError as TurningPointError,
@@ -86,40 +87,12 @@ def solve_sequence(
     """
     r_min = _R_MIN
 
-    # ---------------------------------------------------------
-    # PRESSURE GRID (The Morphology Fix)
-    # ---------------------------------------------------------
-    if n_points is None:
-        solver_n_points = int(CONFIG["SOLVER_N_POINTS"])
-    elif isinstance(n_points, (bool, np.bool_)) or not isinstance(
-        n_points, (int, np.integer)
-    ):
-        raise ValueError("n_points must be an integer greater than or equal to 4.")
-    else:
-        solver_n_points = int(n_points)
-    if solver_n_points < 4:
-        raise ValueError("n_points must be an integer greater than or equal to 4.")
-
-    n_low = int(solver_n_points * CONFIG["SOLVER_N_LOW_RATIO"])
-    n_high = solver_n_points - n_low
-
-    p_max = (
-        p_max_causal if p_max_causal is not None else CONFIG["ABSOLUTE_P_MAX_FALLBACK"]
+    pressures = _pressure_grid.build_central_pressure_grid(
+        is_quark=is_quark,
+        p_max_causal=p_max_causal,
+        n_points=n_points,
+        configuration=CONFIG,
     )
-    p_max_log = np.log10(p_max) if p_max > 10**2.0 else 2.1  # fallback safeguard
-
-    if is_quark:
-        # quark stars are self-bound and have higher central pressures even at low masses
-        # STRATIFIED SAMPLING: Boost high-mass core generation frequency
-        p_low = np.logspace(-1.0, 2.0, n_low, endpoint=False)
-        p_high = np.logspace(2.0, p_max_log, n_high)
-        pressures = np.concatenate((p_low, p_high))
-    else:
-        pressures = np.geomspace(
-            CONFIG["GRID_P_MIN_LOG"],
-            p_max if p_max_causal is not None else 1000.0,
-            solver_n_points,
-        )
 
     curve_data = []
     dense_profiles = []
