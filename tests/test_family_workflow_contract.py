@@ -201,6 +201,20 @@ def test_path_resolution_is_absolute_and_has_no_filesystem_side_effects(tmp_path
             "The family split profile expects generation profile 'other', but "
             "'generation-a' was selected.",
         ),
+        (
+            "missing_split_hash",
+            "The locked model profile does not record a valid family split profile "
+            "hash.",
+        ),
+        (
+            "non_string_split_hash",
+            "The locked model profile does not record a valid family split profile "
+            "hash.",
+        ),
+        (
+            "split_hash_mismatch",
+            "The locked model profile refers to a modified family split profile.",
+        ),
     ],
 )
 def test_profile_loading_order_and_identity_validation_precedence(
@@ -219,6 +233,7 @@ def test_profile_loading_order_and_identity_validation_precedence(
         "data_identity": {
             "generation_profile_id": "generation-a",
             "split_profile_id": "split-a",
+            "split_profile_sha256": "expected-split-hash",
         }
     }
     if case in {"split_generation_mismatch", "all_mismatch"}:
@@ -227,6 +242,10 @@ def test_profile_loading_order_and_identity_validation_precedence(
         model["data_identity"]["generation_profile_id"] = "other"
     if case in {"model_split_mismatch", "all_mismatch"}:
         model["data_identity"]["split_profile_id"] = "other"
+    if case == "missing_split_hash":
+        model["data_identity"].pop("split_profile_sha256")
+    if case == "non_string_split_hash":
+        model["data_identity"]["split_profile_sha256"] = ["not", "a", "hash"]
 
     events = []
 
@@ -242,9 +261,14 @@ def test_profile_loading_order_and_identity_validation_precedence(
         events.append(("model", path))
         return model
 
+    def matches_hash(path, expected_hash):
+        events.append(("split_hash", path, expected_hash))
+        return case != "split_hash_mismatch"
+
     monkeypatch.setattr(family_workflow, "load_family_pilot_profile", generation_loader)
     monkeypatch.setattr(family_workflow, "load_family_split_profile", split_loader)
     monkeypatch.setattr(family_workflow, "load_locked_model_profile", model_loader)
+    monkeypatch.setattr(family_workflow, "_file_matches_sha256", matches_hash)
 
     if expected_error is None:
         loaded = family_workflow._load_profiles(paths)
@@ -256,11 +280,20 @@ def test_profile_loading_order_and_identity_validation_precedence(
             family_workflow._load_profiles(paths)
         assert str(raised.value) == expected_error
 
-    assert events == [
+    expected_events = [
         ("generation", paths.generation_profile_path),
         ("split", paths.split_profile_path),
         ("model", paths.model_profile_path),
     ]
+    if case in {"valid", "split_hash_mismatch"}:
+        expected_events.append(
+            (
+                "split_hash",
+                paths.split_profile_path,
+                "expected-split-hash",
+            )
+        )
+    assert events == expected_events
 
 
 def test_family_split_summary_preserves_split_and_group_order(monkeypatch):

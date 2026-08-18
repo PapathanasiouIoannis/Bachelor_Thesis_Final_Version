@@ -146,12 +146,29 @@ def _load_profiles(paths: FamilyWorkflowPaths) -> tuple[dict, dict, dict]:
         raise ValueError(
             "The locked model profile refers to another family split profile."
         )
+    expected_split_hash = identity.get("split_profile_sha256")
+    if not isinstance(expected_split_hash, str) or not expected_split_hash:
+        raise ValueError(
+            "The locked model profile does not record a valid family split profile "
+            "hash."
+        )
+    if not _file_matches_sha256(paths.split_profile_path, expected_split_hash):
+        raise ValueError(
+            "The locked model profile refers to a modified family split profile."
+        )
     return generation, split, model
 
 
 def _read_json_status(path: Path) -> tuple[dict[str, Any] | None, str | None]:
-    if not path.is_file():
+    try:
+        path.lstat()
+        is_file = path.is_file()
+    except FileNotFoundError:
         return None, None
+    except OSError as exc:
+        return None, f"Could not inspect {path.name}: {exc}"
+    if not is_file:
+        return None, f"Could not read {path.name}: expected a regular file."
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
@@ -178,7 +195,12 @@ def _file_matches_sha256(path: Path, expected_hash: str) -> bool:
     key order are canonicalized; any scientific-content change still fails.
     """
 
-    raw = path.read_bytes()
+    if not isinstance(expected_hash, str):
+        return False
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return False
     candidates = {hashlib.sha256(raw).hexdigest()}
     if path.suffix.casefold() == ".json":
         lf_bytes = raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
@@ -303,11 +325,11 @@ def _development_evidence_summary(paths: FamilyWorkflowPaths) -> dict[str, Any]:
 def _final_test_status(
     paths: FamilyWorkflowPaths, model_profile: dict[str, Any] | None = None
 ) -> dict[str, Any]:
-    final_evidence_present = (
-        paths.final_test_marker_path.exists() or paths.final_test_result_path.exists()
-    )
     marker, marker_error = _read_json_status(paths.final_test_marker_path)
     result, result_error = _read_json_status(paths.final_test_result_path)
+    final_evidence_present = any(
+        value is not None for value in (marker, marker_error, result, result_error)
+    )
     errors = [error for error in (marker_error, result_error) if error is not None]
 
     if marker is not None:
@@ -324,6 +346,10 @@ def _final_test_status(
         expected_hash = marker.get("result_sha256")
         if not expected_hash:
             errors.append("The one-shot marker does not record a final-result hash.")
+        elif not isinstance(expected_hash, str):
+            errors.append(
+                "The one-shot marker records a final-result hash that is not a string."
+            )
         elif not _file_matches_sha256(paths.final_test_result_path, expected_hash):
             errors.append("The final result hash does not match the one-shot marker.")
         for key in ("locked_git_commit", "model_profile_sha256"):
@@ -338,6 +364,10 @@ def _final_test_status(
         expected_profile_hash = marker.get("model_profile_sha256")
         if not expected_profile_hash:
             errors.append("The one-shot marker does not record a model-profile hash.")
+        elif not isinstance(expected_profile_hash, str):
+            errors.append(
+                "The one-shot marker records a model-profile hash that is not a string."
+            )
         elif not _file_matches_sha256(paths.model_profile_path, expected_profile_hash):
             errors.append("The locked model profile hash does not match the marker.")
 
@@ -358,6 +388,10 @@ def _final_test_status(
                 errors.append(f"Locked development evidence is missing: {record}.")
             elif not expected_hash:
                 errors.append(f"Locked development evidence has no hash: {record}.")
+            elif not isinstance(expected_hash, str):
+                errors.append(
+                    f"Locked development evidence hash is not a string: {record}."
+                )
             elif not _file_matches_sha256(evidence_path, expected_hash):
                 errors.append(f"Locked development evidence hash changed: {record}.")
 
@@ -499,6 +533,12 @@ def assert_final_evaluation_not_opened(
         raise FinalTestAlreadyOpenedError(
             "A final family-test result already exists without its marker. "
             "Refusing evaluation until this inconsistent state is investigated."
+        )
+    _, result_error = _read_json_status(resolved.final_test_result_path)
+    if result_error:
+        raise FinalTestAlreadyOpenedError(
+            "The final-test result path exists but is unreadable; fail-closed "
+            f"refusal: {result_error}"
         )
 
 
