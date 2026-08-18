@@ -24,6 +24,7 @@ from src.ml.family_splitting import (
     load_family_split_profile,
 )
 from src.family_runner import evidence as _evidence
+from src.family_runner import status as _status
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -127,36 +128,13 @@ def resolve_family_workflow_paths(
 
 
 def _load_profiles(paths: FamilyWorkflowPaths) -> tuple[dict, dict, dict]:
-    generation = load_family_pilot_profile(paths.generation_profile_path)
-    split = load_family_split_profile(paths.split_profile_path)
-    model = load_locked_model_profile(paths.model_profile_path)
-
-    if split["expected_generation_profile"] != generation["profile_id"]:
-        raise ValueError(
-            "The family split profile expects generation profile "
-            f"'{split['expected_generation_profile']}', but "
-            f"'{generation['profile_id']}' was selected."
-        )
-    identity = model["data_identity"]
-    if identity["generation_profile_id"] != generation["profile_id"]:
-        raise ValueError(
-            "The locked model profile refers to another generation profile."
-        )
-    if identity["split_profile_id"] != split["profile_id"]:
-        raise ValueError(
-            "The locked model profile refers to another family split profile."
-        )
-    expected_split_hash = identity.get("split_profile_sha256")
-    if not isinstance(expected_split_hash, str) or not expected_split_hash:
-        raise ValueError(
-            "The locked model profile does not record a valid family split profile "
-            "hash."
-        )
-    if not _file_matches_sha256(paths.split_profile_path, expected_split_hash):
-        raise ValueError(
-            "The locked model profile refers to a modified family split profile."
-        )
-    return generation, split, model
+    return _status.load_profiles(
+        paths,
+        load_generation_profile=load_family_pilot_profile,
+        load_split_profile=load_family_split_profile,
+        load_model_profile=load_locked_model_profile,
+        file_matches_sha256=_file_matches_sha256,
+    )
 
 
 def _read_json_status(path: Path) -> tuple[dict[str, Any] | None, str | None]:
@@ -195,29 +173,11 @@ def _development_artifacts(paths: FamilyWorkflowPaths) -> dict[str, dict[str, An
 
 
 def _family_split_summary(generation: dict, split: dict) -> dict[str, Any]:
-    amplitudes = generation["deformation"]["amplitudes"]
-    entries = profile_entries(generation)
-    entries_by_group: dict[str, list[Any]] = {}
-    for entry in entries:
-        entries_by_group.setdefault(str(entry.family_group_id), []).append(entry)
-
-    summary: dict[str, Any] = {}
-    for split_name in ("train", "val", "test"):
-        group_ids = [str(value) for value in split["splits"][split_name]]
-        hadronic_groups = [value for value in group_ids if value.startswith("H_")]
-        quark_groups = [value for value in group_ids if value.startswith("Q_")]
-        eos_count = sum(
-            len(entries_by_group.get(group_id, [])) for group_id in group_ids
-        )
-        summary[split_name] = {
-            "family_groups": len(group_ids),
-            "hadronic_family_groups": len(hadronic_groups),
-            "quark_family_groups": len(quark_groups),
-            "eos_baselines": eos_count,
-            "expected_curves": eos_count * len(amplitudes),
-            "group_ids": group_ids,
-        }
-    return summary
+    return _status.family_split_summary(
+        generation,
+        split,
+        profile_entries=profile_entries,
+    )
 
 
 def _development_evidence_summary(paths: FamilyWorkflowPaths) -> dict[str, Any]:
@@ -248,50 +208,18 @@ def family_workflow_status(
     if paths is not None and path_options:
         raise TypeError("Pass either 'paths' or individual path options, not both.")
     resolved = paths or resolve_family_workflow_paths(**path_options)
-    generation, split, model = _load_profiles(resolved)
-    amplitudes = [float(value) for value in generation["deformation"]["amplitudes"]]
-    split_summary = _family_split_summary(generation, split)
-    return {
-        "workflow": "family_classification",
-        "scientific_scope": MODEL_SET_CLAIM,
-        "generation_profile": {
-            "profile_id": generation["profile_id"],
-            "path": str(resolved.generation_profile_path),
-            "hadronic_eos_baselines": len(generation["hadronic_eos_ids"]),
-            "quark_eos_baselines": len(generation["quark_eos_ids"]),
-            "family_groups": len(
-                {str(entry.family_group_id) for entry in profile_entries(generation)}
-            ),
-            "deformation": {
-                "amplitude_symbol": "A",
-                "amplitudes": amplitudes,
-                "center_energy_density_symbol": "epsilon_0",
-                "center_energy_density_mev_fm3": float(
-                    generation["deformation"]["epsilon0_mev_fm3"]
-                ),
-                "width_symbol": "sigma",
-                "width_mev_fm3": float(generation["deformation"]["sigma_mev_fm3"]),
-            },
-            "expected_curves": (
-                len(generation["hadronic_eos_ids"]) + len(generation["quark_eos_ids"])
-            )
-            * len(amplitudes),
-        },
-        "split_profile": {
-            "profile_id": split["profile_id"],
-            "path": str(resolved.split_profile_path),
-            "primary_split_unit": "physical EoS family",
-            "splits": split_summary,
-        },
-        "reporting_model_policy": {
-            "supported": list(SUPPORTED_REPORTING_MODELS),
-            "exploratory_not_run_by_workflow": list(EXPLORATORY_MODELS),
-            "locked_model_profile_id": model["profile_id"],
-        },
-        "development_artifacts": _development_artifacts(resolved),
-        "development_evidence": _development_evidence_summary(resolved),
-        "final_test": _final_test_status(resolved, model),
-    }
+    return _status.family_workflow_status(
+        resolved,
+        load_profiles=_load_profiles,
+        family_split_summary=_family_split_summary,
+        profile_entries=profile_entries,
+        development_artifacts=_development_artifacts,
+        development_evidence_summary=_development_evidence_summary,
+        final_test_status=_final_test_status,
+        model_set_claim=MODEL_SET_CLAIM,
+        supported_reporting_models=SUPPORTED_REPORTING_MODELS,
+        exploratory_models=EXPLORATORY_MODELS,
+    )
 
 
 def assert_final_evaluation_not_opened(
