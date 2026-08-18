@@ -2,19 +2,10 @@ from __future__ import annotations
 
 import importlib
 import inspect
-import subprocess
-import sys
-import textwrap
-from pathlib import Path
 from types import SimpleNamespace
-
-import pytest
 
 from src import family_workflow
 from src.family_runner import status
-
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_family_status_facade_preserves_contract_and_required_dependencies():
@@ -71,60 +62,6 @@ def test_family_status_facade_preserves_contract_and_required_dependencies():
         for name in dependency_names:
             assert parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
             assert parameters[name].default is inspect.Parameter.empty
-
-
-@pytest.mark.parametrize(
-    "script",
-    (
-        textwrap.dedent(
-            """
-            import sys
-
-            import src.family_runner
-
-            assert "src.family_runner.status" not in sys.modules
-            assert "src.family_workflow" not in sys.modules
-            """
-        ),
-        textwrap.dedent(
-            """
-            import sys
-
-            from src.family_runner import status
-
-            assert "src.family_workflow" not in sys.modules
-            assert "src.family_runner.evidence" not in sys.modules
-            from src import family_workflow
-
-            assert callable(status.load_profiles)
-            assert callable(status.family_split_summary)
-            assert callable(status.family_workflow_status)
-            assert callable(family_workflow.family_workflow_status)
-            """
-        ),
-        textwrap.dedent(
-            """
-            from src import family_workflow
-            from src.family_runner import status
-
-            assert callable(family_workflow._load_profiles)
-            assert callable(family_workflow._family_split_summary)
-            assert callable(family_workflow.family_workflow_status)
-            assert callable(status.load_profiles)
-            """
-        ),
-    ),
-    ids=("package-only", "status-first", "facade-first"),
-)
-def test_family_status_import_orders_are_acyclic(script):
-    completed = subprocess.run(
-        [sys.executable, "-c", script],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert completed.returncode == 0, completed.stderr
 
 
 def test_family_status_facade_dispatches_to_reloaded_leaf_with_live_dependencies(

@@ -1,7 +1,8 @@
-"""Safe orchestration and status reporting for the family-classification pilot.
+"""Compatibility and safety facade for the family-classification pilot.
 
-This module deliberately exposes development-only execution.  The one-time final
-test remains owned by ``family_final_test.py`` and is never launched from here.
+This module owns the public surface and visible development lifecycle while
+delegating bounded calculations to ``src.family_runner`` leaves. The one-time
+final test remains owned by ``family_final_test.py`` and is never launched here.
 """
 
 from __future__ import annotations
