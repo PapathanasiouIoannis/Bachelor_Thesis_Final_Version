@@ -50,6 +50,7 @@ from src.physics.experiment_reporting import (
     validate_eos_frame,
     write_markdown_report,
 )
+from src.physics.runner import generation as _generation
 from src.physics.runner import preflight as _preflight
 from src.physics.runner import settings as _settings
 from src.utils.logger import close_run_log, configure_run_log, get_logger
@@ -104,11 +105,41 @@ def _sync_preflight_facade() -> None:
 _sync_preflight_facade()
 
 
-class PairGenerationError(RuntimeError):
-    def __init__(self, matter_type: str, stage: str, reason: str):
-        self.matter_type = matter_type
-        self.stage = stage
-        super().__init__(reason)
+PairGenerationError = _generation.PairGenerationError
+
+
+def _pair_generation_dependencies() -> _generation.PairGenerationDependencies:
+    return _generation.PairGenerationDependencies(
+        configure_run_log=configure_run_log,
+        worker_log_path=_worker_log_path,
+        path_type=Path,
+        sweep_point_type=SweepPoint,
+        build_eos=_build_eos,
+        serialize_eos_table=serialize_eos_table,
+        validate_eos_frame=validate_eos_frame,
+        solve=_solve,
+        stellar_curve_to_frame=stellar_curve_to_frame,
+        pair_generation_error_type=PairGenerationError,
+        close_run_log=close_run_log,
+    )
+
+
+def _build_eos_dependencies() -> _generation.BuildEosDependencies:
+    return _generation.BuildEosDependencies(
+        resolved_numerical_settings=_resolved_numerical_settings,
+        gaussian_deformation_type=GaussianDeformation,
+        build_hadronic_eos=build_hadronic_eos,
+        build_quark_eos=build_quark_eos,
+        quark_parameters=_quark_parameters,
+        configuration=CONFIG,
+    )
+
+
+def _solve_dependencies() -> _generation.SolveDependencies:
+    return _generation.SolveDependencies(
+        resolved_numerical_settings=_resolved_numerical_settings,
+        solve_and_validate_sequence=solve_and_validate_sequence,
+    )
 
 
 def _preflight_validation_dependencies() -> _preflight.ValidationDependencies:
@@ -376,100 +407,14 @@ def _generate_pair(
     configuration_hash: str,
     run_log_path: str,
 ) -> dict[str, Any]:
-    configure_run_log(_worker_log_path(Path(run_log_path)))
-    point = SweepPoint(sweep_index, amplitude)
-    eos_frames: list[pd.DataFrame] = []
-    try:
-        eoses = {}
-        try:
-            eoses["hadronic"] = _build_eos(runtime, "hadronic", amplitude)
-        except Exception as error:
-            raise PairGenerationError(
-                "hadronic", "eos_generation", str(error)
-            ) from error
-        try:
-            eoses["quark"] = _build_eos(runtime, "quark", amplitude)
-        except Exception as error:
-            raise PairGenerationError("quark", "eos_generation", str(error)) from error
-
-        validation_failures: list[tuple[str, Exception]] = []
-        for matter_type in ("hadronic", "quark"):
-            try:
-                frame = serialize_eos_table(
-                    eoses[matter_type], matter_type, point.sweep_id
-                )
-            except Exception as error:
-                raise PairGenerationError(
-                    matter_type, "eos_serialization", str(error)
-                ) from error
-            try:
-                validate_eos_frame(frame)
-                frame.loc[:, "eos_validation_passed"] = True
-                frame.loc[:, "eos_validation_reason"] = "passed"
-            except Exception as error:
-                frame.loc[:, "eos_validation_passed"] = False
-                frame.loc[:, "eos_validation_reason"] = (
-                    f"{type(error).__name__}: {error}"
-                )
-                validation_failures.append((matter_type, error))
-            eos_frames.append(frame)
-        if validation_failures:
-            matter_type, error = validation_failures[0]
-            raise PairGenerationError(
-                matter_type, "eos_validation", str(error)
-            ) from error
-
-        stellar_frames = []
-        for matter_type in ("hadronic", "quark"):
-            eos = eoses[matter_type]
-            try:
-                curve, _, _ = _solve(runtime, eos, matter_type)
-            except Exception as error:
-                raise PairGenerationError(
-                    matter_type, "stellar_sequence", str(error)
-                ) from error
-            curve_id = (
-                f"{matter_type}_{eos.baseline_name}_{point.sweep_id}_"
-                f"{configuration_hash[:10]}"
-            )
-            try:
-                stellar_frames.append(
-                    stellar_curve_to_frame(
-                        curve, eos, matter_type, point.sweep_id, curve_id
-                    )
-                )
-            except Exception as error:
-                raise PairGenerationError(
-                    matter_type, "stellar_serialization", str(error)
-                ) from error
-        result = {
-            "accepted": True,
-            "eos_frames": eos_frames,
-            "stellar_frames": stellar_frames,
-            "rejection": None,
-        }
-        close_run_log()
-        return result
-    except PairGenerationError as error:
-        for frame in eos_frames:
-            frame.loc[:, "pair_accepted"] = False
-        result = {
-            "accepted": False,
-            "eos_frames": eos_frames,
-            "stellar_frames": [],
-            "rejection": {
-                "sweep_id": point.sweep_id,
-                "deformation_amplitude": amplitude,
-                "matter_type": error.matter_type,
-                "stage": error.stage,
-                "exception_type": type(error.__cause__).__name__
-                if error.__cause__
-                else type(error).__name__,
-                "reason": str(error),
-            },
-        }
-        close_run_log()
-        return result
+    return _generation.generate_pair(
+        runtime,
+        sweep_index,
+        amplitude,
+        configuration_hash,
+        run_log_path,
+        dependencies=_pair_generation_dependencies(),
+    )
 
 
 def _build_eos(
@@ -479,29 +424,13 @@ def _build_eos(
     *,
     grid_points: int | None = None,
 ):
-    deformation_config = runtime["deformation"]
-    if grid_points is None:
-        grid_points = int(_resolved_numerical_settings(runtime)["eos_grid_points"])
-    deformation = GaussianDeformation(
-        amplitude=float(amplitude),
-        epsilon0=float(deformation_config["center_energy_density_mev_fm3"]),
-        sigma=float(deformation_config["width_mev_fm3"]),
+    return _generation.build_eos(
+        runtime,
+        matter_type,
+        amplitude,
+        grid_points=grid_points,
+        dependencies=_build_eos_dependencies(),
     )
-    if matter_type == "hadronic":
-        return build_hadronic_eos(
-            runtime["hadronic_eos"]["baseline"],
-            deformation,
-            grid_points=grid_points,
-        )
-    if matter_type == "quark":
-        return build_quark_eos(
-            _quark_parameters(runtime),
-            deformation,
-            maximum_surface_energy_per_baryon=CONFIG["M_N"],
-            grid_points=grid_points,
-            catalog_identifier=runtime["resolved"]["quark_eos_id"],
-        )
-    raise ValueError("matter_type must be 'hadronic' or 'quark'.")
 
 
 def _solve(
@@ -514,23 +443,15 @@ def _solve(
     atol: float | None = None,
     enforce_physical_requirements: bool = True,
 ) -> tuple[list, dict, float]:
-    screens = runtime["physical_requirements"]
-    numerical = _resolved_numerical_settings(runtime)
-    return solve_and_validate_sequence(
+    return _generation.solve(
+        runtime,
         eos,
-        is_quark=matter_type == "quark",
-        minimum_maximum_mass=float(screens["minimum_maximum_mass_msun"]),
-        maximum_maximum_mass=float(screens["maximum_maximum_mass_msun"]),
-        radius_14_bounds=(
-            float(screens["radius_1p4_min_km"]),
-            float(screens["radius_1p4_max_km"]),
-        ),
-        n_points=(
-            int(numerical["central_pressure_points"]) if n_points is None else n_points
-        ),
-        rtol=(float(numerical["tov_relative_tolerance"]) if rtol is None else rtol),
-        atol=(float(numerical["tov_absolute_tolerance"]) if atol is None else atol),
+        matter_type,
+        n_points=n_points,
+        rtol=rtol,
+        atol=atol,
         enforce_physical_requirements=enforce_physical_requirements,
+        dependencies=_solve_dependencies(),
     )
 
 

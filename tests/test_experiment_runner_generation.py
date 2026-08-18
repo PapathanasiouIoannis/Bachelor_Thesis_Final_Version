@@ -21,6 +21,10 @@ class InjectedFailure(Exception):
     pass
 
 
+class UnexpectedFailure(Exception):
+    pass
+
+
 @dataclass(frozen=True)
 class FailureCase:
     failures: frozenset[tuple[str, str]]
@@ -251,6 +255,37 @@ def test_generate_pair_success_preserves_order_ids_objects_and_log_lifecycle(
         assert frame["pair_accepted"].tolist() == [True]
         assert frame["eos_validation_passed"].tolist() == [True]
         assert frame["eos_validation_reason"].tolist() == ["passed"]
+
+
+def test_generate_pair_propagates_unexpected_post_solve_errors(monkeypatch):
+    class EosWithBrokenBaselineName:
+        matter_type = "hadronic"
+
+        @property
+        def baseline_name(self):
+            raise UnexpectedFailure("unexpected baseline-name failure")
+
+    harness = _install_worker_harness(monkeypatch)
+    harness.eoses["hadronic"] = EosWithBrokenBaselineName()
+
+    with pytest.raises(
+        UnexpectedFailure,
+        match="unexpected baseline-name failure",
+    ):
+        experiment_runner._generate_pair(
+            harness.runtime,
+            SWEEP_INDEX,
+            AMPLITUDE,
+            CONFIGURATION_HASH,
+            str(RUN_LOG),
+        )
+
+    domain_events = [event for event in harness.events if event != "close"]
+    assert domain_events == [
+        *FULL_EOS_PREFIX,
+        _event("stellar_sequence", "hadronic"),
+    ]
+    assert harness.stellar_serialization_calls == []
 
 
 FAILURE_CASES = (

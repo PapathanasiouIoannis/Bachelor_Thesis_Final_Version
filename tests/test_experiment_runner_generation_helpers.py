@@ -64,7 +64,7 @@ def test_build_eos_forwards_defaults_overrides_and_live_dependencies(monkeypatch
         resolve_quark_parameters,
     )
     monkeypatch.setattr(experiment_runner, "build_quark_eos", build_quark)
-    monkeypatch.setitem(experiment_runner.CONFIG, "M_N", 938.75)
+    monkeypatch.setattr(experiment_runner, "CONFIG", {"M_N": 938.75})
 
     hadronic = experiment_runner._build_eos(runtime, "hadronic", "0.125")
     quark = experiment_runner._build_eos(
