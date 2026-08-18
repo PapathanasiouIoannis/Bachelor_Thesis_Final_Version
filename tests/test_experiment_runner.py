@@ -373,6 +373,7 @@ def test_failed_convergence_is_terminal_reportable_status(tmp_path, monkeypatch)
     run_directory = next((tmp_path / "runs" / "apr1_cfl4_smoke").iterdir())
     manifest = json.loads((run_directory / "run_manifest.json").read_text())
     assert manifest["status"] == "failed_convergence"
+    assert "error" not in manifest
     report = (run_directory / "report.md").read_text(encoding="utf-8")
     assert "Terminal run status: `failed_convergence`" in report
 
