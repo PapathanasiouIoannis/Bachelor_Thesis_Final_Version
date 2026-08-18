@@ -167,4 +167,6 @@ before invoking a legacy script.
 Further scientific provenance and limitations are documented in the
 [controlled sweep rationale](docs/CONTROLLED_EOS_SWEEP.md),
 [EoS feasibility audit](docs/EOS_FEASIBILITY_AUDIT.md), and
-[classification risk audit](docs/CLASSIFICATION_RISK_AUDIT.md).
+[classification risk audit](docs/CLASSIFICATION_RISK_AUDIT.md). Repository
+support levels, artifact categories, and the required change discipline are
+defined in [Maintenance boundaries](docs/MAINTENANCE_BOUNDARIES.md).
