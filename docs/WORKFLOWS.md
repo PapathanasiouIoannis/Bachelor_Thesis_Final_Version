@@ -155,4 +155,6 @@ They do not share all guarantees of `eoslab.py`: some use older output trees,
 parameter locations, classification language, or test-diagnostic controls.
 They should not be mixed into a new managed run directory. Treat them as
 reproduction and compatibility entry points, and use the unified launcher for
-new experiments.
+new experiments. Their datasets and trained-model artifacts are generated
+locally rather than shipped in Git; see [Runtime artifacts and locked
+evidence](ARTIFACT_POLICY.md) before invoking them from a clean checkout.
