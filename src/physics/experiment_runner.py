@@ -50,6 +50,7 @@ from src.physics.experiment_reporting import (
     validate_eos_frame,
     write_markdown_report,
 )
+from src.physics.runner import artifacts as _artifacts
 from src.physics.runner import convergence as _convergence
 from src.physics.runner import generation as _generation
 from src.physics.runner import preflight as _preflight
@@ -378,32 +379,10 @@ def _merge_worker_logs(run_log_path: Path) -> None:
 def render_resolved_toml(runtime: dict[str, Any]) -> str:
     """Render the known resolved pair schema without a third-party TOML writer."""
 
-    lines = [
-        "# Resolved EoS Lab configuration. Generated automatically.",
-        f"schema_version = {int(runtime['schema_version'])}",
-        f"experiment_name = {_toml_value(runtime['experiment_name'])}",
-        f"workflow = {_toml_value(runtime['workflow'])}",
-        f"mode = {_toml_value(runtime['mode'])}",
-    ]
-    for section in (
-        "hadronic_eos",
-        "quark_eos",
-        "deformation",
-        "physical_requirements",
-        "numerical_settings",
-        "execution",
-    ):
-        lines.extend(("", f"[{section}]"))
-        for key, value in runtime[section].items():
-            lines.append(f"{key} = {_toml_value(value)}")
-    lines.extend(
-        (
-            "",
-            "# Derived amplitude values, catalog identifiers, provenance, and the",
-            "# permitted interpretation are recorded in run_manifest.json.",
-        )
+    return _artifacts.render_resolved_toml(
+        runtime,
+        value_renderer=_toml_value,
     )
-    return "\n".join(lines) + "\n"
 
 
 def _generate_pair(
@@ -534,41 +513,15 @@ def _provenance(runtime: dict[str, Any], quark_eos_id: str) -> dict[str, Any]:
 
 
 def _concat_frames(frames: list[pd.DataFrame], columns) -> pd.DataFrame:
-    if not frames:
-        return pd.DataFrame(columns=columns)
-    return pd.concat(frames, ignore_index=True).loc[:, list(columns)]
+    return _artifacts.concat_frames(frames, columns)
 
 
 def _artifact_hashes(layout: RunLayout) -> dict[str, str]:
-    paths = [
-        layout.resolved_config,
-        layout.data / "eos_tables.parquet",
-        layout.data / "stellar_curves.parquet",
-        layout.tables / "eos_summary.csv",
-        layout.tables / "rejections.csv",
-        layout.tables / "convergence.csv",
-        layout.report,
-        *sorted(layout.plots.glob("*.png")),
-    ]
-    return {
-        str(path.relative_to(layout.root).as_posix()): file_sha256(path)
-        for path in paths
-        if path.is_file()
-    }
+    return _artifacts.artifact_hashes(layout, file_hasher=file_sha256)
 
 
 def _toml_value(value: Any) -> str:
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, str):
-        return json.dumps(value, ensure_ascii=False)
-    if isinstance(value, (int, float)):
-        if isinstance(value, float) and not np.isfinite(value):
-            raise ValueError("Resolved TOML cannot contain a non-finite number.")
-        return repr(value)
-    if isinstance(value, (list, tuple)):
-        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
-    raise TypeError(f"Unsupported resolved TOML value: {type(value).__name__}")
+    return _artifacts.toml_value(value)
 
 
 __all__ = [
