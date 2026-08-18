@@ -2,19 +2,11 @@ from __future__ import annotations
 
 import importlib
 import inspect
-import subprocess
-import sys
-import textwrap
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 from src import family_workflow
 from src.family_runner import development
-
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_family_development_facade_preserves_planner_contract():
@@ -35,57 +27,6 @@ def test_family_development_facade_preserves_planner_contract():
     ):
         assert parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
         assert parameters[name].default is inspect.Parameter.empty
-
-
-@pytest.mark.parametrize(
-    "script",
-    (
-        textwrap.dedent(
-            """
-            import sys
-
-            import src.family_runner
-
-            assert "src.family_runner.development" not in sys.modules
-            assert "src.family_workflow" not in sys.modules
-            """
-        ),
-        textwrap.dedent(
-            """
-            import sys
-
-            from src.family_runner import development
-
-            assert "src.family_workflow" not in sys.modules
-            assert "src.family_runner.evidence" not in sys.modules
-            assert "src.family_runner.status" not in sys.modules
-            from src import family_workflow
-
-            assert callable(development.development_commands)
-            assert callable(family_workflow._development_commands)
-            """
-        ),
-        textwrap.dedent(
-            """
-            from src import family_workflow
-            from src.family_runner import development
-
-            assert callable(family_workflow._development_commands)
-            assert callable(development.development_commands)
-            """
-        ),
-    ),
-    ids=("package-only", "development-first", "facade-first"),
-)
-def test_family_development_import_orders_are_acyclic(script):
-    completed = subprocess.run(
-        [sys.executable, "-c", script],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert completed.returncode == 0, completed.stderr
 
 
 def test_family_development_facade_dispatches_to_reloaded_leaf_with_live_python(

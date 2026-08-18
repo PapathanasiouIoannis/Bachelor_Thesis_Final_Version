@@ -50,6 +50,18 @@ defines the durable failure and terminal-state contract. See
 [Controlled runner architecture](RUNNER_ARCHITECTURE.md) for the responsibility
 map, import graph, worker boundary, invariants, and deferred reliability work.
 
+## Family workflow composition boundary
+
+`src/family_workflow.py` is the supported family compatibility and safety
+facade. It owns canonical paths and errors, final-evaluation refusal, live
+dependency wiring, and the visible sequential development lifecycle. Focused
+modules under `src/family_runner/` own bounded evidence, status, and command-plan
+implementations; the package is inert and no leaf may import the facade. The
+separately governed final-test script is never launched by this workflow. See
+[Safe family workflow architecture](FAMILY_WORKFLOW_ARCHITECTURE.md) for the
+responsibility map, one-shot evidence invariants, durable ordering, and deferred
+behavior work.
+
 ## Maintained research utilities
 
 Audit scripts in `framework/` are maintained when they produce or validate a

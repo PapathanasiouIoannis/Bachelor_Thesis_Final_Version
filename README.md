@@ -171,4 +171,7 @@ Further scientific provenance and limitations are documented in the
 support levels, artifact categories, and the required change discipline are
 defined in [Maintenance boundaries](docs/MAINTENANCE_BOUNDARIES.md). The
 [controlled runner architecture](docs/RUNNER_ARCHITECTURE.md) records the
-facade/leaf ownership, process boundary, and durable lifecycle invariants.
+facade/leaf ownership, process boundary, and durable lifecycle invariants. The
+[safe family workflow architecture](docs/FAMILY_WORKFLOW_ARCHITECTURE.md)
+records the corresponding family facade, one-shot evidence boundary, and
+development ordering.
