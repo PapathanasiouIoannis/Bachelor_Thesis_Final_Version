@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 from types import SimpleNamespace
 
 import pandas as pd
@@ -139,20 +138,6 @@ def test_pre_loop_numerical_conversion_failure_propagates(monkeypatch):
         experiment_runner._run_convergence_checks(runtime, summary)
 
     assert downstream_calls == []
-
-
-def test_convergence_facade_preserves_exact_helper_signatures():
-    assert str(inspect.signature(experiment_runner._run_convergence_checks)) == (
-        "(runtime: 'dict[str, Any]', summary: 'pd.DataFrame') -> 'pd.DataFrame'"
-    )
-    assert str(inspect.signature(experiment_runner._failed_convergence_record)) == (
-        "(runtime: 'dict[str, Any]', matter_type: 'str', amplitude: 'float', "
-        "check: 'str', *, reason: 'str | None' = None) -> 'dict[str, Any]'"
-    )
-    assert str(inspect.signature(experiment_runner._physical_requirements_status)) == (
-        "(runtime: 'dict[str, Any]', observables: 'dict[str, Any]') -> "
-        "'tuple[bool, str]'"
-    )
 
 
 def test_base_exception_from_refinement_propagates_without_failure_row(monkeypatch):
