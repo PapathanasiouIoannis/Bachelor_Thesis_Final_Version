@@ -108,19 +108,7 @@ The minimum supported-code gate is:
 ```powershell
 py -3 eoslab.py doctor
 py -3 -m pytest -q
-py -3 -m ruff check `
-  eoslab.py `
-  framework/eos_catalog.py `
-  framework/eos_sweep.py `
-  src/eoslab_runtime.py `
-  src/experiment_config.py `
-  src/family_workflow.py `
-  src/physics/controlled_generation.py `
-  src/physics/experiment_reporting.py `
-  src/physics/experiment_runner.py `
-  src/physics/solve_sequence.py `
-  src/utils/logger.py `
-  tests
+py -3 -m ruff check eoslab.py framework src tests *.py
 ```
 
 Structural changes to scientific routines also require focused equivalence

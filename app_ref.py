@@ -1,14 +1,10 @@
-import ast
 import os
-import json
 import numpy as np
 import pandas as pd
 import xgboost as xgb
 import torch
-import torch.nn as nn
 import joblib
 import streamlit as st
-import plotly.express as px
 import plotly.graph_objects as go
 import shap
 import matplotlib.pyplot as plt
@@ -105,31 +101,7 @@ st.markdown('<div class="title-gradient">Astrophysical Multi-Messenger Inference
 st.markdown('<div class="subtitle">A rigorous Monte Carlo engine for predicting Equation of State topologies using deep learning.</div>', unsafe_allow_html=True)
 
 # -----------------------------------------
-# 2. PyTorch Model Definition
-# -----------------------------------------
-if False:
-    def __init__(self, input_dim, hidden_sizes, dropout_rate):
-        super(DynamicMLP, self).__init__()
-        layers = []
-        in_dim = input_dim
-        for size in hidden_sizes:
-            layers.append(nn.Linear(in_dim, size))
-            layers.append(nn.LeakyReLU(0.1))
-            layers.append(nn.Dropout(dropout_rate))
-            in_dim = size
-        layers.append(nn.Linear(in_dim, 1))
-        # NOTE: Sigmoid is included here (deployment) but NOT in the training DynamicMLP
-        # (run_mlp.py), which uses BCEWithLogitsLoss instead. The saved linear weights are
-        # identical; this Sigmoid simply converts logits → probabilities in the forward pass
-        # so no external torch.sigmoid() call is needed during inference.
-        layers.append(nn.Sigmoid())
-        self.net = nn.Sequential(*layers)
-
-    def forward(self, x):
-        return self.net(x)
-
-# -----------------------------------------
-# 3. Cached Resource Loaders
+# 2. Cached Resource Loaders
 # -----------------------------------------
 @st.cache_resource(show_spinner="Loading Standard Scaler...")
 def load_scaler():

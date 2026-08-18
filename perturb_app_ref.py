@@ -1,14 +1,10 @@
-import ast
 import os
-import json
 import numpy as np
 import pandas as pd
 import xgboost as xgb
 import torch
-import torch.nn as nn
 import joblib
 import streamlit as st
-import plotly.express as px
 import plotly.graph_objects as go
 import shap
 import matplotlib.pyplot as plt
@@ -105,27 +101,7 @@ st.markdown('<div class="title-gradient">Perturbed Multi-Messenger Inference Eng
 st.markdown('<div class="subtitle">A robust Monte Carlo engine evaluating highly perturbed Equations of State, entirely without Compactness (C).</div>', unsafe_allow_html=True)
 
 # -----------------------------------------
-# 2. PyTorch Model Definition
-# -----------------------------------------
-if False:
-    def __init__(self, input_dim, hidden_sizes, dropout_rate):
-        super(DynamicMLP, self).__init__()
-        layers = []
-        in_dim = input_dim
-        for size in hidden_sizes:
-            layers.append(nn.Linear(in_dim, size))
-            layers.append(nn.LeakyReLU(0.1))
-            layers.append(nn.Dropout(dropout_rate))
-            in_dim = size
-        layers.append(nn.Linear(in_dim, 1))
-        # Note: BCEWithLogitsLoss was used, so we need Sigmoid for inference probabilities
-        self.net = nn.Sequential(*layers)
-
-    def forward(self, x):
-        return self.net(x)
-
-# -----------------------------------------
-# 3. Cached Resource Loaders
+# 2. Cached Resource Loaders
 # -----------------------------------------
 @st.cache_resource(show_spinner="Loading Perturbed Scaler...")
 def load_scaler():

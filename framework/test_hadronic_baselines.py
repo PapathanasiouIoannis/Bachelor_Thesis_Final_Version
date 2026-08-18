@@ -10,7 +10,6 @@ sys.path.append(os.path.abspath('.'))
 from src.config import CONFIG
 from src.physics.get_eos_library import get_eos_library
 from src.physics.tov_rhs import tov_rhs
-from src.utils.exceptions import TovConvergenceError
 
 # custom TOV solver tailored for the Causality Guillotine
 def bounded_solve_sequence(eos_callable, p_max_causal):
@@ -91,7 +90,6 @@ def main():
         
         # 1. The Causality Slicer
         p_grid = np.linspace(P_trans_default, 1200.0, 5000)
-        eps_grid = fA_e(p_grid)
         deps_dp = fA_de(p_grid)
         
         cs2_grid = np.zeros_like(deps_dp)
@@ -132,7 +130,7 @@ def main():
                         break
                 sol = root_scalar(obj, bracket=[P_trans_default, p_high])
                 P_trans_actual = sol.root
-        except:
+        except (ValueError, RuntimeError, ArithmeticError):
             pass
 
         def eos_callable(p):
