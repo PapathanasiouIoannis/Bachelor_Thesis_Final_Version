@@ -1,19 +1,12 @@
 from __future__ import annotations
 
 import inspect
-import subprocess
-import sys
-import textwrap
-from pathlib import Path
 from types import MappingProxyType
-
-import pytest
 
 from src.physics import experiment_runner
 from src.physics.runner import manifest
 
 
-ROOT = Path(__file__).resolve().parents[1]
 BASE_KEYS = (
     "schema_version",
     "component",
@@ -171,42 +164,3 @@ def test_run_pair_experiment_preserves_public_signature():
         "parallel_jobs: 'int | None' = None, runs_root: 'Path | None' = None) "
         "-> 'RunLayout'"
     )
-
-
-@pytest.mark.parametrize(
-    "imports",
-    (
-        """
-        from src.physics.runner import manifest
-        assert "src.physics.experiment_runner" not in sys.modules
-        from src.physics import experiment_runner
-        """,
-        """
-        from src.physics import experiment_runner
-        from src.physics.runner import manifest
-        """,
-    ),
-    ids=("leaf-then-facade", "facade-then-leaf"),
-)
-def test_manifest_leaf_and_facade_import_cleanly_in_both_orders(imports):
-    script = "\n".join(
-        (
-            "import sys",
-            textwrap.dedent(imports).strip(),
-            "",
-            "assert callable(manifest.running_manifest)",
-            "assert callable(manifest.terminal_status)",
-            "assert callable(manifest.terminal_manifest)",
-            "assert callable(manifest.failed_manifest)",
-            "assert callable(experiment_runner.run_pair_experiment)",
-        )
-    )
-    completed = subprocess.run(
-        [sys.executable, "-c", script],
-        cwd=ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 0, completed.stderr

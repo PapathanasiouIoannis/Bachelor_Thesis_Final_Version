@@ -27,14 +27,28 @@ currently includes:
 - `framework/eos_catalog.py` and `framework/eos_sweep.py`;
 - `src/eoslab_runtime.py`, `src/experiment_config.py`, and
   `src/family_workflow.py`;
-- the controlled generation, sequence solving, experiment runner, experiment
-  reporting, and run-logging modules used by the launcher;
+- the controlled generation, sequence solving, experiment reporting, and
+  run-logging modules used by the launcher;
+- `src/physics/experiment_runner.py` as the supported pair-experiment
+  compatibility/lifecycle facade, with `src/physics/runner/` as its internal,
+  acyclic implementation leaves;
 - the family modules imported by the audited family workflow; and
 - the regression suite under `tests/`.
 
 Supported code must pass the repository's readiness check, regression suite,
 and maintained-code lint command. New controlled work must enter through
 `eoslab.py`; a historical launcher must not write into a managed run directory.
+
+## Controlled runner composition boundary
+
+The experiment-runner facade owns the supported import surface, live dependency
+wiring, process boundary, top-level persistence/effect ordering, and manifest
+state transitions. Focused modules under `src/physics/runner/` own bounded
+implementation responsibilities and must never import the facade. Further
+splitting of the visible lifecycle is not routine cleanup because its ordering
+defines the durable failure and terminal-state contract. See
+[Controlled runner architecture](RUNNER_ARCHITECTURE.md) for the responsibility
+map, import graph, worker boundary, invariants, and deferred reliability work.
 
 ## Maintained research utilities
 

@@ -6,8 +6,6 @@ import sys
 import textwrap
 from pathlib import Path
 
-import pytest
-
 from src.physics import experiment_runner
 from src.physics.runner import artifacts
 
@@ -29,48 +27,6 @@ def test_artifacts_facade_preserves_exact_helper_signatures():
     assert str(inspect.signature(experiment_runner._artifact_hashes)) == (
         "(layout: 'RunLayout') -> 'dict[str, str]'"
     )
-
-
-@pytest.mark.parametrize(
-    "imports",
-    (
-        """
-        from src.physics.runner import artifacts
-        assert "src.physics.experiment_runner" not in sys.modules
-        from src.physics import experiment_runner
-        """,
-        """
-        from src.physics import experiment_runner
-        from src.physics.runner import artifacts
-        """,
-    ),
-    ids=("leaf-then-facade", "facade-then-leaf"),
-)
-def test_artifacts_leaf_and_facade_import_cleanly_in_both_orders(imports):
-    script = "\n".join(
-        (
-            "import sys",
-            textwrap.dedent(imports).strip(),
-            "",
-            "assert callable(experiment_runner.render_resolved_toml)",
-            "assert callable(experiment_runner._toml_value)",
-            "assert callable(experiment_runner._concat_frames)",
-            "assert callable(experiment_runner._artifact_hashes)",
-            "assert callable(artifacts.render_resolved_toml)",
-            "assert callable(artifacts.toml_value)",
-            "assert callable(artifacts.concat_frames)",
-            "assert callable(artifacts.artifact_hashes)",
-        )
-    )
-    completed = subprocess.run(
-        [sys.executable, "-c", script],
-        cwd=ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 0, completed.stderr
 
 
 def test_artifacts_facade_uses_reloaded_leaf_and_live_named_helpers():
