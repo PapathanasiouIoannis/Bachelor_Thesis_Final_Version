@@ -303,6 +303,9 @@ def _development_evidence_summary(paths: FamilyWorkflowPaths) -> dict[str, Any]:
 def _final_test_status(
     paths: FamilyWorkflowPaths, model_profile: dict[str, Any] | None = None
 ) -> dict[str, Any]:
+    final_evidence_present = (
+        paths.final_test_marker_path.exists() or paths.final_test_result_path.exists()
+    )
     marker, marker_error = _read_json_status(paths.final_test_marker_path)
     result, result_error = _read_json_status(paths.final_test_result_path)
     errors = [error for error in (marker_error, result_error) if error is not None]
@@ -410,7 +413,7 @@ def _final_test_status(
         "result": result_summary,
         "integrity": "valid" if not errors else "invalid",
         "integrity_errors": errors,
-        "rerun_permitted": False if marker is not None else None,
+        "rerun_permitted": False if final_evidence_present else None,
     }
 
 
@@ -617,6 +620,13 @@ def run_family_development(
             "Family development outputs are frozen because the locked final test has "
             "already been opened. This command will not overwrite post-test evidence. "
             "Create a separately versioned future experiment instead."
+        )
+    if final_before["rerun_permitted"] is False:
+        details = "; ".join(final_before["integrity_errors"])
+        raise FinalTestAlreadyOpenedError(
+            "Family development is blocked because final-test evidence is present but "
+            "is incomplete, unreadable, or inconsistent; fail-closed refusal. "
+            f"Investigate the recorded evidence before continuing. Details: {details}"
         )
 
     commands = _development_commands(

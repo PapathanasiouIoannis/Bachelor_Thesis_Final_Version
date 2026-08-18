@@ -116,6 +116,30 @@ def test_open_marker_refuses_final_evaluation_and_force_regeneration(tmp_path):
         run_family_development(paths)
 
 
+@pytest.mark.parametrize("evidence_state", ["result_without_marker", "malformed_marker"])
+def test_development_fails_closed_for_inconsistent_final_evidence(
+    tmp_path, monkeypatch, evidence_state
+):
+    paths = _paths(tmp_path)
+    if evidence_state == "result_without_marker":
+        paths.report_dir.mkdir(parents=True)
+        paths.final_test_result_path.write_text("{}\n", encoding="utf-8")
+    else:
+        paths.family_ml_dir.mkdir(parents=True)
+        paths.final_test_marker_path.write_text("{not-json\n", encoding="utf-8")
+    calls = []
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: calls.append(args))
+
+    final_status = family_workflow_status(paths)["final_test"]
+
+    with pytest.raises(FinalTestAlreadyOpenedError, match="fail-closed"):
+        run_family_development(paths)
+
+    assert final_status["integrity"] == "invalid"
+    assert final_status["rerun_permitted"] is False
+    assert calls == []
+
+
 def test_development_runs_only_the_five_safe_stages(tmp_path, monkeypatch):
     paths = _paths(tmp_path)
     calls = []
