@@ -86,7 +86,7 @@ def test_rejects_nonfinite_data_and_profile_count_mismatch():
         _extract_first_turning_point(curve, [object()] * 2)
 
 
-@pytest.mark.parametrize("n_points", [True, 3, 4.5])
+@pytest.mark.parametrize("n_points", [True, np.bool_(False), 3, 4.5])
 def test_solve_sequence_rejects_invalid_pressure_sample_count(n_points):
     with pytest.raises(ValueError, match="n_points must be an integer"):
         solve_sequence(lambda pressure: (pressure, 0.5), n_points=n_points)
