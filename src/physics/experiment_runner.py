@@ -52,6 +52,7 @@ from src.physics.experiment_reporting import (
 from src.physics.runner import artifacts as _artifacts
 from src.physics.runner import convergence as _convergence
 from src.physics.runner import generation as _generation
+from src.physics.runner import manifest as _manifest
 from src.physics.runner import preflight as _preflight
 from src.physics.runner import run_logs as _run_logs
 from src.physics.runner import settings as _settings
@@ -207,25 +208,21 @@ def run_pair_experiment(
     configure_run_log(layout.logs / "pipeline.log")
     layout.resolved_config.write_text(render_resolved_toml(runtime), encoding="utf-8")
     created = datetime.now(timezone.utc).isoformat()
-    base_manifest = {
-        "schema_version": 1,
-        "component": "controlled_eos_pair_sensitivity",
-        "status": "running",
-        "experiment_name": runtime["experiment_name"],
-        "workflow": runtime["workflow"],
-        "mode": runtime["mode"],
-        "configuration_hash": preflight.resolved.config_hash,
-        "source_tree_sha256": source_tree_sha256(),
-        "git_revision": git_revision(),
-        "created_utc": created,
-        "environment": environment_metadata(),
-        "preflight": preflight.to_dict(),
-        "execution": runtime["execution"],
-        "resolved_numerical_settings": runtime["resolved_numerical_settings"],
-        "runtime_overrides": runtime_overrides,
-        "classification_enabled": False,
-        "permitted_scientific_interpretation": PAIR_INTERPRETATION,
-    }
+    base_manifest = _manifest.running_manifest(
+        experiment_name=runtime["experiment_name"],
+        workflow=runtime["workflow"],
+        mode=runtime["mode"],
+        configuration_hash=preflight.resolved.config_hash,
+        source_tree_sha256=source_tree_sha256(),
+        git_revision=git_revision(),
+        created_utc=created,
+        environment=environment_metadata(),
+        preflight=preflight.to_dict(),
+        execution=runtime["execution"],
+        resolved_numerical_settings=runtime["resolved_numerical_settings"],
+        runtime_overrides=runtime_overrides,
+        permitted_scientific_interpretation=PAIR_INTERPRETATION,
+    )
     write_json(layout.manifest, base_manifest)
     LOGGER.info("Run directory: %s", layout.root)
     LOGGER.info("Generating %d paired amplitudes.", len(preflight.sweep_points))
@@ -283,13 +280,10 @@ def run_pair_experiment(
             else None
         )
         all_pairs_accepted = len(rejection_table) == 0
-        status = (
-            "completed"
-            if all_pairs_accepted
-            and (not convergence_performed or convergence_passed is True)
-            else "completed_with_rejections"
-            if not all_pairs_accepted
-            else "failed_convergence"
+        status = _manifest.terminal_status(
+            all_pairs_accepted=all_pairs_accepted,
+            convergence_performed=convergence_performed,
+            convergence_passed=convergence_passed,
         )
 
         plot_paths: list[Path] = []
@@ -308,19 +302,19 @@ def run_pair_experiment(
         )
         causal_domains = build_causal_domain_table(eos_tables)
         artifacts = _artifact_hashes(layout)
-        manifest = {
-            **base_manifest,
-            "status": status,
-            "completed_utc": datetime.now(timezone.utc).isoformat(),
-            "accepted_pairs": len(accepted),
-            "accepted_curves": len(summary),
-            "rejected_pairs": len(rejection_table),
-            "convergence_performed": convergence_performed,
-            "convergence_passed": convergence_passed,
-            "causal_domains": json.loads(causal_domains.to_json(orient="records")),
-            "plot_files": [path.name for path in plot_paths],
-            "artifacts": artifacts,
-        }
+        manifest = _manifest.terminal_manifest(
+            base_manifest,
+            status=status,
+            completed_utc=datetime.now(timezone.utc).isoformat(),
+            accepted_pairs=len(accepted),
+            accepted_curves=len(summary),
+            rejected_pairs=len(rejection_table),
+            convergence_performed=convergence_performed,
+            convergence_passed=convergence_passed,
+            causal_domains=json.loads(causal_domains.to_json(orient="records")),
+            plot_files=[path.name for path in plot_paths],
+            artifacts=artifacts,
+        )
         write_json(layout.manifest, manifest)
         if status != "completed":
             raise RuntimeError(
@@ -333,16 +327,12 @@ def run_pair_experiment(
         _merge_worker_logs(layout.logs / "pipeline.log")
         current = json.loads(layout.manifest.read_text(encoding="utf-8"))
         if current.get("status") == "running":
-            current.update(
-                {
-                    "status": "failed",
-                    "completed_utc": datetime.now(timezone.utc).isoformat(),
-                    "error": {
-                        "type": type(error).__name__,
-                        "message": str(error),
-                        "traceback": traceback.format_exc(),
-                    },
-                }
+            current = _manifest.failed_manifest(
+                current,
+                completed_utc=datetime.now(timezone.utc).isoformat(),
+                error_type=type(error).__name__,
+                error_message=str(error),
+                error_traceback=traceback.format_exc(),
             )
             write_json(layout.manifest, current)
         raise
