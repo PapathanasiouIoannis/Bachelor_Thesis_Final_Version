@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from src import experiment_config
+from src.configuration import common as configuration_common
 from src.experiment_config import (
     ConfigurationError,
     FamilyClassificationSpec,
@@ -33,6 +35,30 @@ PAIR_ROOT_KEYS = (
     "workflow",
 )
 
+PUBLIC_CONFIGURATION_API = (
+    "ConfigurationError",
+    "DeformationSpec",
+    "ExecutionSpec",
+    "ExperimentSpec",
+    "FamilyClassificationSpec",
+    "FamilyModelsSpec",
+    "FamilyProfilesSpec",
+    "FinalTestSpec",
+    "HadronicEosSpec",
+    "NumericalSettingsSpec",
+    "ObservableGridSpec",
+    "PAIR_INTERPRETATION",
+    "PairExperimentSpec",
+    "PhysicalRequirementsSpec",
+    "QuarkEosSpec",
+    "ResolvedExperiment",
+    "canonical_sha256",
+    "decimal_amplitude_grid",
+    "load_experiment_config",
+    "load_pair_experiment",
+    "resolve_pair_experiment",
+)
+
 
 def _replace_profile(tmp_path: Path, source_name: str, old: str, new: str) -> Path:
     text = (CONFIGS / source_name).read_text(encoding="utf-8")
@@ -40,6 +66,16 @@ def _replace_profile(tmp_path: Path, source_name: str, old: str, new: str) -> Pa
     path = tmp_path / source_name
     path.write_text(text.replace(old, new), encoding="utf-8")
     return path
+
+
+def test_configuration_facade_preserves_its_public_api_and_helper_identity():
+    assert tuple(experiment_config.__all__) == PUBLIC_CONFIGURATION_API
+    assert experiment_config.ConfigurationError is configuration_common.ConfigurationError
+    assert experiment_config.canonical_sha256 is configuration_common.canonical_sha256
+    assert (
+        experiment_config.decimal_amplitude_grid
+        is configuration_common.decimal_amplitude_grid
+    )
 
 
 def test_reproduction_profile_loads_as_immutable_typed_specification():
