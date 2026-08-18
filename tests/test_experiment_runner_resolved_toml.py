@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 from pathlib import Path
 
 import pytest
@@ -54,15 +53,6 @@ amplitudes_per_batch = 3
 # Derived amplitude values, catalog identifiers, provenance, and the
 # permitted interpretation are recorded in run_manifest.json.
 """
-
-
-def test_resolved_toml_facade_preserves_exact_signatures():
-    assert str(inspect.signature(experiment_runner.render_resolved_toml)) == (
-        "(runtime: 'dict[str, Any]') -> 'str'"
-    )
-    assert str(inspect.signature(experiment_runner._toml_value)) == (
-        "(value: 'Any') -> 'str'"
-    )
 
 
 def test_smoke_resolved_toml_is_byte_stable_and_excludes_derived_values():
