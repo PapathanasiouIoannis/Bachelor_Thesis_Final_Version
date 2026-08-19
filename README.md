@@ -8,17 +8,9 @@ scientific parameters do not need to be edited in source code.
 The reference sensitivity experiment compares exactly two fixed parent models:
 
 - the repository's analytic APR-1 hadronic surrogate;
-- the CFL4 MIT-bag benchmark, with bag constant
-  \(B=60\;\mathrm{MeV\,fm^{-3}}\), pairing gap
-  \(\Delta=100\;\mathrm{MeV}\), and strange-quark mass
-  \(m_s=150\;\mathrm{MeV}\).
+- the CFL4 MIT-bag benchmark, with bag constant $B=60 \mathrm{MeV/ fm^{3}}$, pairing gap $\Delta=100\mathrm{MeV}$ and strange-quark mass $m_s=150\mathrm{MeV}$.
 
-Both use the same additive Gaussian sound-speed deformation, centred at energy
-density \(\epsilon_0=220\;\mathrm{MeV\,fm^{-3}}\), with width
-\(\sigma=50\;\mathrm{MeV\,fm^{-3}}\), while the dimensionless amplitude \(A\)
-is swept. This is an APR-1-surrogate versus fixed-CFL4 sensitivity comparison.
-It is not a universal matter-phase classifier and does not estimate an
-astrophysical probability of quark matter.
+Both use the same additive Gaussian sound-speed deformation, centred at energy density $\epsilon_0=220\\mathrm{MeV/fm^{3}}$, with width $\sigma=50\\mathrm{MeV/fm^{3}}$, while the dimensionless amplitude $A$ is swept. This is an APR-1-surrogate versus fixed-CFL4 sensitivity comparison. It is not a universal matter-phase classifier and does not estimate an astrophysical probability of quark matter.
 
 ## Quick start
 
