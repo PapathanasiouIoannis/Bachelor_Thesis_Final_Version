@@ -1,0 +1,5 @@
+{
+    "hidden_layer_sizes": "[128, 64, 32]",
+    "dropout_rate": 0.3658280633929596,
+    "learning_rate": 0.00821532132522509
+}
