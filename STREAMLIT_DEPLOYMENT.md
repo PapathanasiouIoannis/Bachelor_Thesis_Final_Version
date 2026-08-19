@@ -3,8 +3,8 @@
 This branch is an isolated runtime surface for the two legacy Streamlit entry
 points:
 
-- `app_ref.py`
-- `perturb_app_ref.py`
+- [`app_ref.py`](https://eoslab-clean-inference.streamlit.app/)
+- [`perturb_app_ref.py`](https://eoslab-perturbed-inference.streamlit.app/)
 
 It follows the current `main` source tree but intentionally restores only the
 compact tensors, fitted scalers, model parameters, and model weights loaded by
