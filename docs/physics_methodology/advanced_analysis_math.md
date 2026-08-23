@@ -1,7 +1,22 @@
 # Advanced Diagnostics and Interpretability
 
-Because neural networks and gradient boosters are essentially "black boxes," the framework executes several advanced mathematical diagnostics in `src/ml/advanced/` to formally prove the algorithmic logic.
+The exploratory workflows include diagnostics in `src/ml/advanced/` for
+inspecting fitted-model behaviour. These tools can reveal structure inside the
+retained synthetic dataset or explain a classifier's response, but they do not
+prove that the learned boundary represents a universal physical distinction.
 
-- **UMAP Projections:** Uniform Manifold Approximation and Projection (UMAP) mathematically collapses the high-dimensional $M-R-\Lambda$ space into a 2D plane. This visually proves that the classifiers have successfully isolated distinct, non-linear class boundaries rather than just memorizing theoretical noise.
-- **Brier Score Calibration:** To ensure the models are trustworthy, Brier scores evaluate calibration reliability. Using reliability diagrams, the script verifies whether a predicted output probability (e.g., $P(\text{Quark}) = 0.85$) accurately aligns with an 85% real-world observational frequency, confirming the model is neither underconfident nor overconfident.
-- **SHAP Feature Importance:** Leveraging cooperative game theory, Shapley Additive exPlanations (Lundberg & Lee, 2017) are used to formally quantify the exact marginal predictive contribution of every single variable. The resulting SHAP beeswarm plots unequivocally prove that $\log_{10}\Lambda$ acts as the dominant feature driving the model's boundary decisions, especially when subjected to the observational noise pipeline.
+- **UMAP projections:** Uniform Manifold Approximation and Projection provides a
+  two-dimensional view of the retained feature space. Apparent separation is a
+  descriptive property of that embedding and dataset; it is not evidence of
+  phase-general discrimination or observational validity.
+- **Brier scores and reliability diagrams:** These are calibration diagnostics
+  for the evaluated synthetic split. They do not fit a calibration mapping and
+  do not turn a classifier score into a real-world frequency or astrophysical
+  posterior probability.
+- **SHAP feature attribution:** Shapley Additive exPlanations describe how the
+  fitted model's score changes with its inputs. They identify predictive
+  dependence inside the retained experiment, not exact causal or physical
+  contributions.
+
+The controlling interpretation and remaining validation risks are documented
+in [`../CLASSIFICATION_RISK_AUDIT.md`](../CLASSIFICATION_RISK_AUDIT.md).

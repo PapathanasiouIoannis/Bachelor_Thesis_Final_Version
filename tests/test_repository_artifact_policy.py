@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import subprocess
 from pathlib import Path
 
@@ -17,6 +18,15 @@ RUNTIME_ROOTS = (
     "runs",
 )
 LOCK_MARKER = "data/family_pilot_v1/family_ml/LOCKED_TEST_OPENED.json"
+DEPLOYMENT_MANIFEST = ROOT / "deployment" / "streamlit-artifacts.sha256"
+
+
+def _deployment_artifacts() -> dict[str, str]:
+    entries: dict[str, str] = {}
+    for line in DEPLOYMENT_MANIFEST.read_text(encoding="utf-8").splitlines():
+        digest, path = line.split("  ", maxsplit=1)
+        entries[path] = digest
+    return entries
 
 
 def _git(*arguments: str) -> subprocess.CompletedProcess[str]:
@@ -29,12 +39,18 @@ def _git(*arguments: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_only_the_final_lock_marker_is_tracked_in_runtime_roots():
+def test_only_declared_deployment_artifacts_and_lock_marker_are_tracked():
     completed = _git("ls-files", "--", *RUNTIME_ROOTS)
     assert completed.returncode == 0, completed.stderr
     tracked = {line for line in completed.stdout.splitlines() if line}
 
-    assert tracked == {LOCK_MARKER}
+    assert tracked == {LOCK_MARKER, *_deployment_artifacts()}
+
+
+def test_deployment_artifact_hashes_match_the_reviewed_manifest():
+    for path, expected_digest in _deployment_artifacts().items():
+        payload = (ROOT / path).read_bytes()
+        assert hashlib.sha256(payload).hexdigest() == expected_digest, path
 
 
 def test_runtime_outputs_are_ignored_but_the_lock_marker_is_explicitly_allowed():

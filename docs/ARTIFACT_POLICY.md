@@ -87,8 +87,16 @@ and compact terminal summaries are promoted explicitly with `export-summary`.
 
 ## Source-control guard
 
-The regression suite inspects `git ls-files` and permits exactly one tracked
-path beneath the runtime roots: the final-test marker. It also verifies that the
-marker is explicitly unignored and that the checked-in evidence chain remains
-valid. Adding a new runtime artifact to Git therefore requires an intentional
-policy change rather than an accidental force-add.
+On `main`, the regression suite permits exactly one tracked path beneath the
+runtime roots: the final-test marker. The isolated Streamlit deployment branch
+adds only the artifacts enumerated in
+`deployment/streamlit-artifacts.sha256`. Its branch-specific tests require an
+exact path allowlist and verify every declared SHA-256 digest. The tests also
+verify that the final-test marker remains explicitly unignored and that its
+evidence chain remains valid.
+
+Deployment artifacts are an explicit, checksum-bound branch exception. They
+must not be merged back into `main`, silently regenerated, or treated as new
+scientific evidence. Adding or replacing a runtime artifact requires a reviewed
+manifest update and a fresh complete test run rather than an accidental
+force-add.

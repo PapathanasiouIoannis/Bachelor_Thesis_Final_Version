@@ -1,5 +1,26 @@
 # EoS Lab: controlled compact-star experiments
 
+## Repository identity and scientific responsibility
+
+This repository is a **post-thesis audit and redevelopment** of a restricted
+synthetic compact-star classification workflow. It was created after the
+undergraduate thesis examination. The later `thesis-submitted-v1` tag is a
+historical code snapshot associated with the thesis-era workflow; it is not
+verified as the exact code package examined with the thesis and does not contain
+the official examined thesis document.
+
+The examined thesis, the subsequent redevelopment, and the two public
+interactive demonstrations are therefore distinct records. Do not use this
+repository or its tag as a substitute for the official thesis PDF or academic
+record.
+
+The work was developed by Ioannis Papathanasiou under the supervision of
+Charalampos Moustakidis and Theodoros Diakonidis. Codex assisted with software
+development; scientific interpretation and responsibility remain with Ioannis
+Papathanasiou. This statement does not assign co-authorship, endorsement of
+every software revision, or responsibility for the two applications to the
+supervisors.
+
 This repository solves the Tolman–Oppenheimer–Volkoff (TOV) and tidal equations
 for controlled equation-of-state (EoS) studies. The supported post-thesis
 interface is `eoslab.py`; experiment settings live in commented TOML files, so
@@ -146,15 +167,31 @@ or general phase-detection performance. See the
 [classification risk audit](docs/CLASSIFICATION_RISK_AUDIT.md) and
 [final classification report](docs/FAMILY_CLASSIFICATION_FINAL_REPORT.md).
 
+## Public interactive demonstrations
+
+Two lasting public demonstrations provide an interactive view of retained
+classifier artifacts:
+
+- [Baseline synthetic-classifier demonstration](https://eoslab-clean-inference.streamlit.app/)
+- [Perturbation-sensitivity demonstration](https://eoslab-perturbed-inference.streamlit.app/)
+
+They are independent post-thesis extensions, not thesis-submission artifacts or
+observational inference services. Their scores apply only to the retained
+restricted synthetic comparisons. They are not calibrated astrophysical
+probabilities, composition posteriors, observational measurements, or evidence
+about the interior of a real star. The deployment-specific artifacts and
+provenance boundary are documented in
+[`STREAMLIT_DEPLOYMENT.md`](STREAMLIT_DEPLOYMENT.md).
+
 ## Legacy entry points
 
 `physics_main.py`, `main.py`, `perturb_main.py`, the `family_*.py` scripts, and
-the Streamlit applications are retained to reproduce earlier thesis workflows
-and artifacts. They are compatibility entry points, not the recommended way to
-start a new controlled run. They may expose older parameter controls, output
-layouts, classification wording, or test-diagnostic behaviour. Use `eoslab.py`
-for new post-thesis work and consult [Supported workflows](docs/WORKFLOWS.md)
-before invoking a legacy script.
+older command-line entry points are retained to reproduce earlier thesis
+workflows and artifacts. They are compatibility entry points, not the
+recommended way to start a new controlled run. They may expose older parameter
+controls, output layouts, or test-diagnostic behaviour. Use `eoslab.py` for new
+post-thesis work and consult [Supported workflows](docs/WORKFLOWS.md) before
+invoking a legacy script.
 
 Further scientific provenance and limitations are documented in the
 [controlled sweep rationale](docs/CONTROLLED_EOS_SWEEP.md),

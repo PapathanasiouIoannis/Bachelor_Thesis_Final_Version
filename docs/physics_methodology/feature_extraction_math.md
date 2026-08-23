@@ -9,4 +9,9 @@ Because the RK45 integration steps are dynamically sized, the solver rarely land
 ### The Removal of Compactness
 In an earlier iteration of the project, the compactness parameter $C = \frac{M}{R}$ was provided to the XGBoost algorithms as an explicit input feature. 
 
-However, during rigorous auditing, I realized this induced severe mathematical data leakage. Since the classifiers already possessed both $M$ and $R$, feeding them the explicit quotient $C$ artificially inflated their performance metrics by providing redundant, pre-calculated topological ratios. To ensure the evaluation of the masquerade problem remained fundamentally strict, Compactness was removed from the feature schema.
+During the later audit, compactness was identified as a deterministic function
+of features already supplied to the classifier. Retaining it could make model
+performance depend on an unnecessary engineered proxy. Compactness was
+therefore removed from the approved feature schema. This control narrows one
+shortcut risk; it does not by itself establish independent physical-family
+generalization or observational validity.

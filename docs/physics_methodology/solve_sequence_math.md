@@ -4,13 +4,17 @@ To generate a full stellar sequence (the mass-radius curve), `src/physics/solve_
 
 The actual numerical integration relies on SciPy's `solve_ivp` utilizing the Runge-Kutta method of order 5(4) (`RK45`). The integration starts near $r=0$ and steps radially outward. It terminates dynamically using an event function triggered when the pressure drops to the surface cutoff threshold ($10^{-13}$ MeV/fm$^3$).
 
-### Rigorous Physical Cutoffs
+### Implemented acceptance checks
 
-Not all central pressures yield stars that could physically exist in the universe. I implemented several hard theoretical filters to reject mathematically valid but physically impossible integration branches:
+Not all central pressures yield retained stellar models. The solver applies several necessary
+model and numerical checks. Passing them does not by itself establish that an EoS is a realistic
+description of matter:
 
 1. **Causality:** The speed of sound inside the star cannot exceed the speed of light in a vacuum. If the microscopic generator returns an equation of state where $c_s^2 > 1$, the sequence is immediately discarded.
-2. **Thermodynamic Stability:** The pressure must strictly monotonically increase with energy density, meaning $\frac{dP}{d\epsilon} > 0$. An EoS that violates this would be mechanically unstable to collapse.
-3. **The Buchdahl Limit:** General relativity dictates a maximum theoretical compactness $C = \frac{GM}{Rc^2}$. If a star's compactness exceeds the Buchdahl limit of $C = \frac{4}{9}$, it would inevitably undergo total gravitational collapse into a black hole.
+2. **Local mechanical stability:** The retained barotrope requires $\frac{dP}{d\epsilon} > 0$.
+3. **Compactness bound:** The implementation rejects configurations above $C = \frac{4}{9}$.
+   This is the Buchdahl bound under its standard assumptions; using it as a numerical acceptance
+   check should not be read as a complete collapse analysis.
 
 ### Extracting the Tidal Love Number
 
@@ -20,6 +24,7 @@ Following Hinderer (2008), $y_R$ is substituted into a massive algebraic express
 
 $$ k_2 = \frac{8 C^5}{5}(1-2C)^2 [2C(y_R - 1) - y_R + 2] \Big\{ 2C [6 - 3y_R + 3C(5y_R - 8)] + 4C^3 [13 - 11y_R + C(3y_R - 2) + 2C^2(1+y_R)] + 3(1-2C)^2 [2 - y_R + 2C(y_R - 1)] \ln(1-2C) \Big\}^{-1} $$
 
-Once $k_2$ is isolated, it is trivial to calculate the dimensionless tidal deformability $\Lambda$, which is the actual parameter constrained by gravitational wave observatories like LIGO during events like GW170817:
+Once $k_2$ is calculated, the dimensionless tidal deformability $\Lambda$ follows. Tidal
+deformability combinations are among the quantities constrained in gravitational-wave analyses:
 
 $$ \Lambda = \frac{2}{3} k_2 C^{-5} $$
